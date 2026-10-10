@@ -89,6 +89,9 @@ class ProgressHub(_HubComponent):
         if self._timer_task is not None and not self._timer_task.done():
             self._timer_task.cancel()
 
+    def start_timer(self) -> None:
+        self._start_countdown()
+
     def minute_almost_done(self) -> bool:
         return self._timer_task is None or self._seconds <= self.ALMOST_DONE_SECONDS
 
@@ -138,9 +141,11 @@ class ChannelListHub(_HubComponent):
         return None
 
 class InventoryHub(_HubComponent):
+    def clear(self) -> None:
+        self._hub.clear_inventory()
+
     def update_drop(self, drop: TimedDrop) -> None:
         self._hub.update_inventory_drop(drop)
-
     def update_campaign(self, campaign: DropsCampaign) -> None:
         self._hub.update_inventory_campaign(campaign)
 
@@ -381,6 +386,10 @@ class StateHub:
     def remove_channel(self, channel: Channel) -> None:
         self.channels_map.pop(channel.id, None)
         self.broadcast_event("channels", list(self.channels_map.values()))
+
+    def clear_inventory(self) -> None:
+        self.campaigns_map.clear()
+        self.broadcast_event("inventory", [])
 
     def update_inventory_drop(self, drop: TimedDrop) -> None:
         camp_id = drop.campaign.id

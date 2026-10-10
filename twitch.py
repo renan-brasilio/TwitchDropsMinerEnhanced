@@ -377,6 +377,21 @@ class _AuthState:
                 for invalid_token_attempt in range(2):
                     cookie = jar.filter_cookies(client_info.CLIENT_URL)
                     if "auth-token" not in cookie:
+                        smartbox_cookie = jar.filter_cookies(ClientType.SMARTBOX.CLIENT_URL)
+                        if "auth-token" in smartbox_cookie:
+                            cookie = smartbox_cookie
+                            self._twitch._client_type = ClientType.SMARTBOX
+                            client_info = self._twitch._client_type
+                    if "auth-token" not in cookie:
+                        for c in jar:
+                            if c.key == "auth-token":
+                                self.access_token = c.value
+                                cookie["auth-token"] = c
+                                if "android.tv" in c.get("domain", ""):
+                                    self._twitch._client_type = ClientType.SMARTBOX
+                                    client_info = self._twitch._client_type
+                                break
+                    if "auth-token" not in cookie:
                         if getattr(self._twitch.settings, "auth_token", None):
                             logger.info("Using auth token from settings")
                             self.access_token = self._twitch.settings.auth_token
