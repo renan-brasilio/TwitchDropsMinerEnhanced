@@ -8,6 +8,23 @@ class WindowDelegate: NSObject, NSWindowDelegate {
         return false // Hide instead of closing so menu bar stays active
     }
 }
+enum MenuBarStyle: String, CaseIterable {
+    case iconOnly = "iconOnly"
+    case currentMining = "currentMining"
+    case timeLeft = "timeLeft"
+    case percentage = "percentage"
+    case full = "full"
+
+    var title: String {
+        switch self {
+        case .iconOnly: return "Icon Only"
+        case .currentMining: return "Icon + Current Game (e.g. Overwatch)"
+        case .timeLeft: return "Icon + Time Left (e.g. 35m)"
+        case .percentage: return "Icon + Percentage (e.g. 65%)"
+        case .full: return "Icon + Full Status (e.g. 65% Overwatch)"
+        }
+    }
+}
 
 class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate, WKNavigationDelegate, WKUIDelegate {
     var mainWindow: NSWindow!
@@ -34,6 +51,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     var apiKey: String {
         get { UserDefaults.standard.string(forKey: "apiKey") ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: "apiKey") }
+    }
+    var menuBarStyle: MenuBarStyle {
+        get {
+            let raw = UserDefaults.standard.string(forKey: "menuBarStyle") ?? "iconOnly"
+            return MenuBarStyle(rawValue: raw) ?? .iconOnly
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "menuBarStyle") }
     }
 
     var effectiveURL: URL {
@@ -335,6 +359,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         menu.addItem(NSMenuItem.separator())
         // 6. Settings & Config
         menu.addItem(NSMenuItem(title: "Connection Settings...", action: #selector(showConnectionSettings), keyEquivalent: ","))
+
+        // 6b. Menu Bar Display Submenu
+        let displaySubmenu = NSMenu(title: "Menu Bar Display")
+        for style in MenuBarStyle.allCases {
+            let item = NSMenuItem(title: style.title, action: #selector(changeMenuBarStyle(_:)), keyEquivalent: "")
+            item.representedObject = style.rawValue
+            item.state = (menuBarStyle == style) ? .on : .off
+            displaySubmenu.addItem(item)
+        }
+        let displayMenuItem = NSMenuItem(title: "Menu Bar Display", action: nil, keyEquivalent: "")
+        displayMenuItem.submenu = displaySubmenu
+        menu.addItem(displayMenuItem)
         menu.addItem(NSMenuItem(title: "Twitch Auth Token...", action: #selector(promptSetAuthToken), keyEquivalent: "t"))
 
         menu.addItem(NSMenuItem.separator())
@@ -353,9 +389,47 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
 
     func updateUI() {
         if let button = statusItem.button {
-            button.title = ""
+            switch menuBarStyle {
+            case .iconOnly:
+                button.title = ""
+                button.imagePosition = .imageOnly
+            case .currentMining:
+                if let game = activeGame {
+                    button.title = " \(game)"
+                    button.imagePosition = .imageLeading
+                } else {
+                    button.title = (minerState == "IDLE") ? " Idle" : ""
+                    button.imagePosition = button.title.isEmpty ? .imageOnly : .imageLeading
+                }
+            case .timeLeft:
+                if activeDropRemaining > 0 {
+                    button.title = " \(formatMinutes(activeDropRemaining))"
+                    button.imagePosition = .imageLeading
+                } else {
+                    button.title = ""
+                    button.imagePosition = .imageOnly
+                }
+            case .percentage:
+                if activeDropPercent > 0 {
+                    button.title = " \(Int(activeDropPercent))%"
+                    button.imagePosition = .imageLeading
+                } else {
+                    button.title = ""
+                    button.imagePosition = .imageOnly
+                }
+            case .full:
+                if let game = activeGame, activeDropPercent > 0 {
+                    button.title = " \(Int(activeDropPercent))% \(game)"
+                    button.imagePosition = .imageLeading
+                } else {
+                    button.title = (minerState == "IDLE") ? " Idle" : ""
+                    button.imagePosition = button.title.isEmpty ? .imageOnly : .imageLeading
+                }
+            }
+
             if let game = activeGame, activeDropPercent > 0 {
-                button.toolTip = "Twitch Drops Miner Enhanced — \(Int(activeDropPercent))% \(game)"
+                let timeStr = formatMinutes(activeDropRemaining)
+                button.toolTip = "Twitch Drops Miner Enhanced — \(game): \(Int(activeDropPercent))% (\(timeStr) remaining)"
             } else {
                 button.toolTip = "Twitch Drops Miner Enhanced — \(statusText)"
             }
@@ -365,6 +439,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         // Update main window title with status
         let modeText = isRemote ? "Remote [\(effectiveURL.host ?? "VPS")]" : "Local"
         mainWindow.title = "Twitch Drops Miner Enhanced — \(statusText) (\(modeText))"
+    }
+
+    func formatMinutes(_ totalMinutes: Int) -> String {
+        if totalMinutes >= 60 {
+            let h = totalMinutes / 60
+            let m = totalMinutes % 60
+            return m > 0 ? "\(h)h \(m)m" : "\(h)h"
+        }
+        return "\(totalMinutes)m"
+    }
+
+    @objc func changeMenuBarStyle(_ sender: NSMenuItem) {
+        if let raw = sender.representedObject as? String,
+           let style = MenuBarStyle(rawValue: raw) {
+            self.menuBarStyle = style
+            self.updateUI()
+        }
     }
 
     // MARK: - Local Backend Auto-Start
@@ -682,41 +773,53 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         alert.informativeText = "Configure whether this app connects to a local miner or a remote VPS Docker container:"
         alert.alertStyle = .informational
 
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 160))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 210))
 
         // Mode Segmented Control
         let modeLabel = NSTextField(labelWithString: "Connection Mode:")
-        modeLabel.frame = NSRect(x: 0, y: 130, width: 140, height: 20)
+        modeLabel.frame = NSRect(x: 0, y: 175, width: 140, height: 20)
         modeLabel.font = NSFont.boldSystemFont(ofSize: 12)
         container.addSubview(modeLabel)
 
         let modeSegment = NSSegmentedControl(labels: ["Local Daemon", "Remote VPS / Docker"], trackingMode: .selectOne, target: nil, action: nil)
-        modeSegment.frame = NSRect(x: 140, y: 128, width: 270, height: 24)
+        modeSegment.frame = NSRect(x: 140, y: 173, width: 270, height: 24)
         modeSegment.selectedSegment = isRemote ? 1 : 0
         container.addSubview(modeSegment)
 
         // Remote URL
         let urlLabel = NSTextField(labelWithString: "Server URL:")
-        urlLabel.frame = NSRect(x: 0, y: 88, width: 140, height: 20)
+        urlLabel.frame = NSRect(x: 0, y: 135, width: 140, height: 20)
         container.addSubview(urlLabel)
 
-        let urlInput = NSTextField(frame: NSRect(x: 140, y: 85, width: 270, height: 24))
+        let urlInput = NSTextField(frame: NSRect(x: 140, y: 132, width: 270, height: 24))
         urlInput.stringValue = serverURLString
         urlInput.placeholderString = "http://100.77.235.18:23432 or https://..."
         container.addSubview(urlInput)
 
         // API Key
         let keyLabel = NSTextField(labelWithString: "API Key (Optional):")
-        keyLabel.frame = NSRect(x: 0, y: 48, width: 140, height: 20)
+        keyLabel.frame = NSRect(x: 0, y: 95, width: 140, height: 20)
         container.addSubview(keyLabel)
 
-        let keyInput = NSSecureTextField(frame: NSRect(x: 140, y: 45, width: 270, height: 24))
+        let keyInput = NSSecureTextField(frame: NSRect(x: 140, y: 92, width: 270, height: 24))
         keyInput.stringValue = apiKey
         keyInput.placeholderString = "Leave empty if not required"
         container.addSubview(keyInput)
 
+        // Menu Bar Display Picker
+        let displayLabel = NSTextField(labelWithString: "Menu Bar Display:")
+        displayLabel.frame = NSRect(x: 0, y: 55, width: 140, height: 20)
+        container.addSubview(displayLabel)
+
+        let displayPopup = NSPopUpButton(frame: NSRect(x: 140, y: 52, width: 270, height: 26), pullsDown: false)
+        for style in MenuBarStyle.allCases {
+            displayPopup.addItem(withTitle: style.title)
+        }
+        displayPopup.selectItem(withTitle: menuBarStyle.title)
+        container.addSubview(displayPopup)
+
         let hint = NSTextField(labelWithString: "Local uses http://127.0.0.1:23432. Remote connects to your Docker container.")
-        hint.frame = NSRect(x: 0, y: 8, width: 420, height: 28)
+        hint.frame = NSRect(x: 0, y: 8, width: 420, height: 32)
         hint.font = NSFont.systemFont(ofSize: 11)
         hint.textColor = NSColor.secondaryLabelColor
         container.addSubview(hint)
@@ -734,8 +837,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
             self.serverURLString = newURL.isEmpty ? (newIsRemote ? "http://vps:23432" : "http://127.0.0.1:23432") : newURL
             self.apiKey = newKey
 
-            print("Updated connection: isRemote=\(self.isRemote), url=\(self.serverURLString)")
+            if let selectedItem = displayPopup.selectedItem,
+               let chosenStyle = MenuBarStyle.allCases.first(where: { $0.title == selectedItem.title }) {
+                self.menuBarStyle = chosenStyle
+            }
+
+            print("Updated settings: isRemote=\(self.isRemote), url=\(self.serverURLString), style=\(self.menuBarStyle)")
             reloadConnection()
+            updateUI()
         }
     }
 
