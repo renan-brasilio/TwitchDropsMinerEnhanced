@@ -56,6 +56,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     var activeViewers: Int = 0
     var isLoggedIn: Bool = false
     var hasLoadedDashboard: Bool = false
+    var deviceCode: String? = nil
+    var deviceUri: String? = nil
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set Dock Application Icon
         if let iconPath = Bundle.main.path(forResource: "AppIcon", ofType: "icns"),
@@ -306,8 +308,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         menu.addItem(NSMenuItem(title: "Claim Eligible Drops", action: #selector(claimDropsAction), keyEquivalent: "c"))
         menu.addItem(NSMenuItem(title: "Reload Campaigns", action: #selector(reloadCampaigns), keyEquivalent: ""))
 
-        menu.addItem(NSMenuItem.separator())
+        // Activation Code Quick Copy (if device code is required)
+        if let code = deviceCode {
+            menu.addItem(NSMenuItem.separator())
+            let copyItem = NSMenuItem(title: "Copy Activation Code: \(code)", action: #selector(copyActivationCodeAction), keyEquivalent: "")
+            copyItem.attributedTitle = NSAttributedString(
+                string: "Copy Code: \(code)",
+                attributes: [.font: NSFont.boldSystemFont(ofSize: 12), .foregroundColor: NSColor.systemOrange]
+            )
+            menu.addItem(copyItem)
+            menu.addItem(NSMenuItem(title: "Open Twitch Activation Page...", action: #selector(openActivationPage), keyEquivalent: ""))
+        }
 
+        menu.addItem(NSMenuItem.separator())
         // 6. Settings & Config
         menu.addItem(NSMenuItem(title: "Connection Settings...", action: #selector(showConnectionSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem(title: "Twitch Auth Token...", action: #selector(promptSetAuthToken), keyEquivalent: "t"))
@@ -583,6 +596,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
             activeViewers = 0
         }
 
+        if let dc = json["device_code"] as? [String: Any] {
+            deviceCode = dc["code"] as? String
+            deviceUri = dc["uri"] as? String
+        } else {
+            deviceCode = nil
+            deviceUri = nil
+        }
+
         updateUI()
     }
 
@@ -610,6 +631,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     @objc func switchStreamer() { sendPostRequest(endpoint: "/api/control/switch") }
     @objc func reloadCampaigns() { sendPostRequest(endpoint: "/api/control/reload") }
     @objc func claimDropsAction() { sendPostRequest(endpoint: "/api/control/claim") }
+
+    @objc func copyActivationCodeAction() {
+        if let code = deviceCode {
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(code, forType: .string)
+        }
+    }
+
+    @objc func openActivationPage() {
+        let uri = deviceUri ?? "https://www.twitch.tv/activate"
+        if let url = URL(string: uri) {
+            NSWorkspace.shared.open(url)
+        }
+    }
 
     @objc func promptSetAuthToken() {
         let alert = NSAlert()

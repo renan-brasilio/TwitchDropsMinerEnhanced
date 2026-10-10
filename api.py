@@ -73,6 +73,7 @@ class APIServer:
         self._app.router.add_get("/api/status", self._get_status)
         self._app.router.add_get("/api/channels", self._get_channels)
         self._app.router.add_get("/api/inventory", self._get_inventory)
+        self._app.router.add_post("/api/inventory/refresh", self._post_inventory_refresh)
         self._app.router.add_get("/api/games", self._get_games)
         self._app.router.add_get("/api/settings", self._get_settings)
         self._app.router.add_post("/api/settings", self._post_settings)
@@ -120,6 +121,23 @@ class APIServer:
     async def _get_inventory(self, request: web.Request) -> web.Response:
         return self._json_response(list(self._hub.campaigns_map.values()))
 
+
+    async def _post_inventory_refresh(self, request: web.Request) -> web.Response:
+        self._hub.add_log("INFO", "Refreshing inventory and drop campaigns from Twitch...")
+        try:
+            await self._twitch.fetch_inventory()
+            return self._json_response({
+                "status": "success",
+                "campaigns": list(self._hub.campaigns_map.values()),
+                "count": len(self._hub.campaigns_map)
+            })
+        except Exception as e:
+            logger.error(f"Failed to refresh inventory: {e}")
+            return self._json_response({
+                "status": "error",
+                "message": str(e),
+                "campaigns": list(self._hub.campaigns_map.values())
+            }, status=500)
     async def _get_games(self, request: web.Request) -> web.Response:
         popular = [
             "Overwatch", "Rust", "Rainbow Six Siege", "Dead by Daylight",

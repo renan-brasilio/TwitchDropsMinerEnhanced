@@ -634,8 +634,13 @@
         <a id="activationLink" href="https://www.twitch.tv/activate" target="_blank" style="color: var(--text); font-weight: 600; text-decoration: underline;">twitch.tv/activate</a>
         and enter code: <span class="code-chip" id="activationCode">ABCD-EFGH</span>
       </div>
-      <button class="btn btn-primary" onclick="openActivation()">Open Activation Page</button>
-    </div>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn" id="btnCopyCode" onclick="copyActivationCode()">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          <span id="btnCopyText">Copy Code</span>
+        </button>
+        <button class="btn btn-primary" onclick="openActivation()">Open Activation Page</button>
+      </div>
   </div>
 
   <div class="container">
@@ -747,7 +752,10 @@
       <div class="panel">
         <div class="panel-header">
           <div class="panel-title">Active Drops Campaigns</div>
-          <button class="btn" onclick="fetchInventory()">Refresh</button>
+          <button class="btn" id="btnRefreshCampaigns" onclick="fetchInventory()">
+            <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+            Refresh
+          </button>
         </div>
         <div id="campaignsList">
           <p style="color: var(--text-muted); font-size: 13px;">Loading inventory...</p>
@@ -1067,6 +1075,42 @@
         banner.classList.remove('visible');
       }
     }
+    function copyActivationCode() {
+      const codeEl = document.getElementById('activationCode');
+      const code = codeEl ? codeEl.innerText.trim() : '';
+      if (!code || code === 'ABCD-EFGH') return;
+      const copySuccess = () => {
+        showToast(`Copied code ${code} to clipboard`, 'success');
+        const textEl = document.getElementById('btnCopyText');
+        if (textEl) {
+          textEl.innerText = 'Copied!';
+          setTimeout(() => { textEl.innerText = 'Copy Code'; }, 2000);
+        }
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(copySuccess).catch(() => {
+          fallbackCopyText(code, copySuccess);
+        });
+      } else {
+        fallbackCopyText(code, copySuccess);
+      }
+    }
+
+    function fallbackCopyText(text, cb) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        if (cb) cb();
+      } catch (e) {
+        showToast(`Activation code: ${text}`, 'info');
+      }
+      document.body.removeChild(ta);
+    }
 
     function openActivation() {
       const link = document.getElementById('activationLink').href;
@@ -1105,6 +1149,7 @@
     }
 
     let priorityList = [];
+    let cachedAvailableGames = [];
 
     async function loadPriorities() {
       try {
@@ -1116,36 +1161,55 @@
         const gamesData = await gamesRes.json();
 
         priorityList = settingsData.priority || [];
+        cachedAvailableGames = gamesData.available || [];
         document.getElementById('priorityMode').value = settingsData.priority_mode || 0;
 
-        // Populate Game Selection Dropdown
-        const dropdown = document.getElementById('gameSelectDropdown');
-        dropdown.innerHTML = '<option value="">-- Choose game from campaigns or catalog --</option>';
-        
-        const discoveredGroup = document.createElement('optgroup');
-        discoveredGroup.label = 'Active Campaigns on Your Account';
-        const popularGroup = document.createElement('optgroup');
-        popularGroup.label = 'Popular Twitch Drops Games';
+        updateGameSelectors();
+        renderPriorityList();
+      } catch (err) {
+        console.error(err);
+      }
+    }
 
-        (gamesData.available || []).forEach(g => {
-          const opt = document.createElement('option');
-          opt.value = g.name;
-          opt.textContent = g.name;
-          if (g.discovered) {
-            discoveredGroup.appendChild(opt);
-          } else {
-            popularGroup.appendChild(opt);
-          }
-        });
+    function updateGameSelectors() {
+      const dropdown = document.getElementById('gameSelectDropdown');
+      dropdown.innerHTML = '<option value="">-- Choose game to prioritize --</option>';
 
-        if (discoveredGroup.children.length > 0) dropdown.appendChild(discoveredGroup);
-        if (popularGroup.children.length > 0) dropdown.appendChild(popularGroup);
+      const discoveredGroup = document.createElement('optgroup');
+      discoveredGroup.label = 'Active Campaigns on Your Account';
+      const popularGroup = document.createElement('optgroup');
+      popularGroup.label = 'Popular Twitch Drops Games';
 
-        // Populate Quick-Add Chips
-        const chipsContainer = document.getElementById('quickAddChips');
-        chipsContainer.innerHTML = '';
-        const popularChips = ['Overwatch', 'Rust', 'Rainbow Six Siege', 'Valorant', 'Dead by Daylight', 'Escape from Tarkov', 'World of Warcraft', 'Apex Legends'];
-        popularChips.forEach(name => {
+      let discoveredCount = 0;
+      let popularCount = 0;
+
+      cachedAvailableGames.forEach(g => {
+        if (priorityList.includes(g.name)) return;
+
+        const opt = document.createElement('option');
+        opt.value = g.name;
+        opt.textContent = g.name;
+        if (g.discovered) {
+          discoveredGroup.appendChild(opt);
+          discoveredCount++;
+        } else {
+          popularGroup.appendChild(opt);
+          popularCount++;
+        }
+      });
+
+      if (discoveredCount > 0) dropdown.appendChild(discoveredGroup);
+      if (popularCount > 0) dropdown.appendChild(popularGroup);
+
+      const chipsContainer = document.getElementById('quickAddChips');
+      chipsContainer.innerHTML = '';
+      const popularChips = ['Overwatch', 'Rust', 'Rainbow Six Siege', 'Valorant', 'Dead by Daylight', 'Escape from Tarkov', 'World of Warcraft', 'Apex Legends'];
+      const remainingPopular = popularChips.filter(name => !priorityList.includes(name));
+
+      if (remainingPopular.length === 0) {
+        chipsContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 12px;">All top games already added to priorities.</span>';
+      } else {
+        remainingPopular.forEach(name => {
           const btn = document.createElement('button');
           btn.className = 'btn';
           btn.style.cssText = 'padding: 3px 8px; font-size: 11px;';
@@ -1153,10 +1217,6 @@
           btn.onclick = () => addGameToPriority(name);
           chipsContainer.appendChild(btn);
         });
-
-        renderPriorityList();
-      } catch (err) {
-        console.error(err);
       }
     }
 
@@ -1244,6 +1304,7 @@
         return;
       }
       priorityList.push(gameName);
+      updateGameSelectors();
       renderPriorityList();
       savePriorities(false);
       showToast(`Added ${gameName} to priorities`, 'success');
@@ -1260,6 +1321,7 @@
 
     function removePriority(index) {
       const removed = priorityList.splice(index, 1)[0];
+      updateGameSelectors();
       renderPriorityList();
       savePriorities(false);
       showToast(`Removed ${removed} from priorities`, 'info');
@@ -1276,6 +1338,30 @@
         if (showNotice) showToast('Priority configuration saved', 'success');
       } catch (err) {
         showToast('Failed to save priorities', 'error');
+      }
+    }
+
+    async function fetchInventory() {
+      const btn = document.getElementById('btnRefreshCampaigns');
+      if (btn) btn.disabled = true;
+      showToast('Refreshing campaigns from Twitch...', 'info');
+      try {
+        const res = await apiFetch('/api/inventory/refresh', { method: 'POST' });
+        const data = await res.json();
+        const camps = data.campaigns || [];
+        renderInventory(camps);
+        showToast(`Campaigns refreshed (${camps.length} active)`, 'success');
+      } catch (err) {
+        try {
+          const res = await apiFetch('/api/inventory');
+          const data = await res.json();
+          renderInventory(data);
+          showToast(`Campaigns loaded (${data.length} active)`, 'info');
+        } catch (e) {
+          showToast('Failed to refresh campaigns: ' + err.message, 'error');
+        }
+      } finally {
+        if (btn) btn.disabled = false;
       }
     }
 
