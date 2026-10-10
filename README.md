@@ -145,19 +145,6 @@ If you'd encounter any issues with the miner:
 - Please [search the issues page](https://github.com/DevilXD/TwitchDropsMiner/issues?q=sort%3Aupdated-desc%20is%3Aissue) to see if your issue hasn't been reported yet.  
 - If it's not been reported yet, feel free to open a new issue, describing your problem.
 
-If you like the application and found it useful, please consider donating a small amount of money to support me. Thank you!
-
-<div align="center">
-
-[![Buy me a coffee](https://i.imgur.com/cL95gzE.png)](
-    https://www.buymeacoffee.com/DevilXD
-)
-[![Support me on Patreon](https://i.imgur.com/Mdkb9jq.png)](
-    https://www.patreon.com/bePatron?u=26937862
-)
-
-</div>
-
 ### Project goals:
 
 Twitch Drops Miner (TDM for short) has been designed with a couple of simple goals in mind. These are, specifically:

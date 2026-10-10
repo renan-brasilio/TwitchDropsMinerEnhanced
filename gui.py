@@ -2119,20 +2119,6 @@ class HelpTab:
             link="https://github.com/DevilXD/TwitchDropsMiner",
             text="https://github.com/DevilXD/TwitchDropsMiner",
         ).grid(column=1, row=1, sticky="nsew")
-        # About - donate
-        ttk.Separator(
-            about, orient="horizontal"
-        ).grid(column=0, row=2, columnspan=3, sticky="nsew")
-        ttk.Label(about, text="Donate: ", anchor="e").grid(column=0, row=3, sticky="nsew")
-        LinkLabel(
-            about,
-            link="https://www.buymeacoffee.com/DevilXD",
-            text=(
-                "If you like the application and found it useful, "
-                "please consider donating a small amount of money to support me. Thank you!"
-            ),
-            wraplength=self.WIDTH,
-        ).grid(column=1, row=3, sticky="nsew")
         # Useful links
         links = ttk.LabelFrame(
             center_frame, padding=(4, 0, 4, 4), text=_("gui", "help", "links", "name")
