@@ -62,4 +62,31 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
 EOF
 
 echo "==> Successfully created $APP_BUNDLE!"
-echo "==> You can run it with: open \"$APP_BUNDLE\""
+
+# 3. Package drag-and-drop installer DMG
+echo "==> Packaging TwitchDropsMinerEnhanced-macOS-arm64.dmg installer..."
+DMG_STAGE="/tmp/dmg_stage_$$"
+rm -rf "$DMG_STAGE"
+mkdir -p "$DMG_STAGE"
+cp -R "$APP_BUNDLE" "$DMG_STAGE/"
+ln -s /Applications "$DMG_STAGE/Applications"
+
+DMG_OUT="$DIR/TwitchDropsMinerEnhanced-macOS-arm64.dmg"
+rm -f "$DMG_OUT"
+hdiutil create -volname "Twitch Drops Miner Enhanced" \
+  -srcfolder "$DMG_STAGE" \
+  -ov \
+  -format UDZO \
+  "$DMG_OUT" > /dev/null
+rm -rf "$DMG_STAGE"
+echo "==> Created DMG: $DMG_OUT"
+
+# 4. Package portable ZIP
+echo "==> Packaging TwitchDropsMinerEnhanced-macOS-arm64.zip archive..."
+ZIP_OUT="$DIR/TwitchDropsMinerEnhanced-macOS-arm64.zip"
+rm -f "$ZIP_OUT"
+(cd "$DIR" && zip -q -r "$ZIP_OUT" "$APP_NAME.app" manual.txt README.md)
+echo "==> Created ZIP: $ZIP_OUT"
+
+echo "==> Build complete! Artifacts:"
+ls -lh "$DMG_OUT" "$ZIP_OUT"
