@@ -1,6 +1,11 @@
 name: Rename release titles
 
 on:
+  push:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/rename-release-titles.yml"
   workflow_dispatch:
 
 permissions:
