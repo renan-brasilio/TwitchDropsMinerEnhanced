@@ -100,6 +100,12 @@ class BaseDrop:
         return f"Drop({self.rewards_text()}{additional})"
 
     @property
+    def image_url(self) -> str:
+        if self.benefits and self.benefits[0].image_url:
+            return str(self.benefits[0].image_url)
+        return ""
+
+    @property
     def preconditions_met(self) -> bool:
         campaign = self.campaign
         return all(campaign.timed_drops[pid].is_claimed for pid in self.precondition_drops)

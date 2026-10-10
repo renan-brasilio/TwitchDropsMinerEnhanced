@@ -977,14 +977,20 @@
         return;
       }
       document.getElementById('dropTitle').innerText = drop.name;
-      document.getElementById('gameText').innerText = drop.game;
+      const gameText = document.getElementById('gameText');
+      if (drop.game_box_art) {
+        gameText.innerHTML = `<img src="${drop.game_box_art}" alt="${drop.game}" style="width: 16px; height: 22px; border-radius: 2px; object-fit: cover; vertical-align: middle; margin-right: 5px; border: 1px solid var(--border);">${drop.game}`;
+      } else {
+        gameText.innerText = drop.game;
+      }
       document.getElementById('percentDisplay').innerText = drop.percentage.toFixed(1) + '%';
       document.getElementById('minutesDisplay').innerText = `${drop.current_minutes} / ${drop.required_minutes} min (${drop.remaining_minutes}m remaining)`;
       document.getElementById('progressFill').style.width = drop.percentage + '%';
       if (drop.image_url) {
-        document.getElementById('dropThumbnail').innerHTML = `<img src="${drop.image_url}" alt="Drop">`;
+        document.getElementById('dropThumbnail').innerHTML = `<img src="${drop.image_url}" alt="Reward" style="width: 100%; height: 100%; object-fit: cover;">`;
+      } else if (drop.game_box_art) {
+        document.getElementById('dropThumbnail').innerHTML = `<img src="${drop.game_box_art}" alt="Game" style="width: 100%; height: 100%; object-fit: cover;">`;
       }
-    }
 
     function renderStreamer(channel) {
       const currentStreamerText = document.getElementById('currentStreamerText');
@@ -1024,10 +1030,13 @@
       }
       container.innerHTML = campaigns.map(c => `
         <div class="campaign-item">
-          <div class="campaign-meta-row">
-            <div>
-              <div class="campaign-game-tag">${c.game}</div>
-              <strong style="font-size: 14px;">${c.name}</strong>
+          <div class="campaign-meta-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              ${c.box_art ? `<img src="${c.box_art}" alt="${c.game}" style="width: 44px; height: 58px; border-radius: 4px; object-fit: cover; border: 1px solid var(--border); flex-shrink: 0; background: var(--surface);">` : ''}
+              <div>
+                <div class="campaign-game-tag">${c.game}</div>
+                <strong style="font-size: 14px; display: block; margin-top: 2px;">${c.name}</strong>
+              </div>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
               <button class="btn" style="padding: 2px 8px; font-size: 11px;" onclick="addGameToPriority('${c.game}')">+ Prioritize</button>
@@ -1036,8 +1045,14 @@
           </div>
           <div class="campaign-drops-list">
             ${(c.drops || []).map(d => `
-              <div class="drop-subrow">
-                <span>${d.name} <span class="mono" style="color: var(--text-muted);">(${d.current_minutes}/${d.required_minutes}m)</span></span>
+              <div class="drop-subrow" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: var(--surface); border-radius: 4px; margin-bottom: 6px; font-size: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  ${d.image_url ? `<img src="${d.image_url}" alt="${d.name}" style="width: 34px; height: 34px; border-radius: 4px; object-fit: cover; border: 1px solid var(--border); flex-shrink: 0; background: var(--surface-subtle);">` : '<div style="width: 34px; height: 34px; border-radius: 4px; background: var(--surface-subtle); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--text-muted); flex-shrink: 0;">Item</div>'}
+                  <div>
+                    <div style="font-weight: 500;">${d.name}</div>
+                    <div class="mono" style="color: var(--text-muted); font-size: 11px;">${d.current_minutes} / ${d.required_minutes} min</div>
+                  </div>
+                </div>
                 <div>
                   ${d.is_claimed ? '<span class="pill pill-online">Claimed</span>' : (d.can_claim ? '<button class="btn btn-primary" style="padding: 2px 8px; font-size: 11px;" onclick="claimDrops()">Claim</button>' : `<span class="mono" style="color: var(--text-muted);">${d.percentage}%</span>`)}
                 </div>

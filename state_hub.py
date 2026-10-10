@@ -314,13 +314,20 @@ class StateHub:
         remaining = max(0, req - curr)
         
         image_url = ""
-        if hasattr(drop, "image_url"):
+        if hasattr(drop, "image_url") and drop.image_url:
             image_url = str(drop.image_url)
+        elif hasattr(drop, "benefits") and drop.benefits and drop.benefits[0].image_url:
+            image_url = str(drop.benefits[0].image_url)
+
+        game_box_art = ""
+        if hasattr(drop.campaign, "image_url") and drop.campaign.image_url:
+            game_box_art = str(drop.campaign.image_url)
 
         self.active_drop = {
             "id": drop.id,
             "name": drop.name,
             "game": str(drop.campaign.game),
+            "game_box_art": game_box_art,
             "current_minutes": curr,
             "required_minutes": req,
             "remaining_minutes": remaining,
@@ -408,9 +415,16 @@ class StateHub:
     def update_inventory_campaign(self, campaign: DropsCampaign) -> None:
         drops_list = []
         for drop in campaign.drops:
+            image_url = ""
+            if hasattr(drop, "image_url") and drop.image_url:
+                image_url = str(drop.image_url)
+            elif hasattr(drop, "benefits") and drop.benefits and drop.benefits[0].image_url:
+                image_url = str(drop.benefits[0].image_url)
+
             drops_list.append({
                 "id": drop.id,
                 "name": drop.name,
+                "image_url": image_url,
                 "current_minutes": getattr(drop, "current_minutes", 0),
                 "required_minutes": getattr(drop, "required_minutes", 60),
                 "percentage": round(
@@ -420,10 +434,15 @@ class StateHub:
                 "can_claim": getattr(drop, "can_claim", False),
             })
 
+        box_art = ""
+        if hasattr(campaign, "image_url") and campaign.image_url:
+            box_art = str(campaign.image_url)
+
         self.campaigns_map[campaign.id] = {
             "id": campaign.id,
             "name": campaign.name,
             "game": str(campaign.game),
+            "box_art": box_art,
             "linked": campaign.linked,
             "upcoming": campaign.upcoming,
             "active": campaign.active,
