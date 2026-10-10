@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  miner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: twitch-drops-miner-enhanced
+    restart: unless-stopped
+    ports:
+      - "23432:23432"
+    environment:
+      # Optional API key protection when exposing to public internet
+      - API_KEY=
+      # Optional Twitch auth token (or set it via the Web Dashboard / macOS App)
+      - TWITCH_AUTH_TOKEN=
+      - TZ=UTC
+    volumes:
+      # Persistent storage for settings, cookies, and logs
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:23432/api/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

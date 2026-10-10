@@ -127,6 +127,9 @@ if __name__ == "__main__":
     parser.add_argument("--tray", action="store_true")
     parser.add_argument("--log", action="store_true")
     parser.add_argument("--dump", action="store_true")
+    parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"), help="API server bind host")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "23432")), help="API server port")
+    parser.add_argument("--no-browser", action="store_true", help="Do not automatically open the browser")
     # undocumented debug args
     parser.add_argument(
         "--debug-ws", dest="_debug_ws", action="store_true", help=argparse.SUPPRESS
@@ -175,8 +178,20 @@ if __name__ == "__main__":
 
         exit_status = 0
         client = Twitch(settings)
-        api_server = APIServer(client, client.gui, port=getattr(settings, "api_port", 23432))
+        bind_host = getattr(args, "host", "127.0.0.1")
+        bind_port = getattr(args, "port", getattr(settings, "api_port", 23432))
+        api_server = APIServer(client, client.gui, host=bind_host, port=bind_port)
         await api_server.start()
+
+        # Automatically open dashboard in default browser if local
+        if not getattr(args, "no_browser", False) and not os.environ.get("DOCKER") and not os.environ.get("HEADLESS"):
+            open_host = "127.0.0.1" if bind_host in ("0.0.0.0", "127.0.0.1") else bind_host
+            try:
+                import webbrowser
+                webbrowser.open(f"http://{open_host}:{bind_port}")
+            except Exception:
+                pass
+
         loop = asyncio.get_running_loop()
         if sys.platform in ("linux", "darwin"):
             for sig in (signal.SIGINT, signal.SIGTERM):

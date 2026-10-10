@@ -4,11 +4,14 @@
 
 ### ✨ Key Enhancements:
 
-- **🍎 Native macOS Menu Bar Status App (`TwitchDropsMinerEnhanced.app`)**:
-  - Sits directly in your macOS menu bar as a lightweight status extra (`NSStatusItem`).
-  - Displays live mining status, drop progress bars (`[████████░░] 75%`), streamer info, and remaining minutes.
-  - Quick actions from the menu: Pause/Resume, Switch Streamer, Claim Drops, and Open Dashboard.
-  - Native macOS notifications when drops are claimed.
+- **🍎 Full Native macOS App Window + Menu Bar Extra (`TwitchDropsMinerEnhanced.app`)**:
+  - **Native Window View**: Opens a sleek macOS desktop application window with WebKit rendering, responsive dark mode, live charts, and controls.
+  - **Menu Bar Status**: Live status in your macOS menu bar (`NSStatusItem` e.g. `⛏️ 75% Rust`), with quick actions to pause, resume, switch channel, or claim rewards.
+  - **Dock Integration**: Focuses, minimizes, and re-opens cleanly from the Dock or `Cmd+Tab`. Closing the window hides it while the menu bar miner keeps running.
+- **🐳 Docker & Remote VPS Support (Dokploy / Compose)**:
+  - Run the mining core headless on your VPS 24/7 inside Docker (`Dockerfile` + `docker-compose.yml`).
+  - **Client-Server Mode**: Switch the macOS app between **Local Daemon** and **Remote VPS** in Connection Settings (`Cmd+,`).
+  - Secure with an optional `API_KEY` when hosting publicly.
 - **🌐 Modern Dark-Mode Web Dashboard**:
   - Beautiful macOS-inspired glassmorphism interface with Apple typography (`SF Pro`).
   - Real-time reactive updates over WebSockets (0% polling lag).
@@ -22,19 +25,40 @@
   - **Updated GQL Persisted Queries**: Refreshed hashes for `Inventory`, `Campaigns`, `AvailableDrops`, and `DirectoryPage_Game` (including newly required `includeCostreaming` and `sortTypeIsRecency` variables).
   - **Fixed PubSub Channel Refresh Race**: Prevents channel reconciliation crashes when streams refresh while websockets are listening.
 
-### 🚀 Quick Start (macOS):
+---
 
-1. **Build the Menu Bar App:**
+### 🚀 Quick Start (macOS App)
+
+1. **Build and launch:**
    ```bash
    ./build_mac.sh
-   ```
-2. **Run:**
-   ```bash
    open TwitchDropsMinerEnhanced.app
    ```
-3. **Web Dashboard:**
-   Open [http://127.0.0.1:23432](http://127.0.0.1:23432) in your browser.
+2. **Choose Connection Mode:**
+   - Click the gear icon or press `Cmd+,` in the app.
+   - **Local Mode**: Uses `http://127.0.0.1:23432` (auto-starts local backend if needed).
+   - **Remote VPS Mode**: Enter your VPS URL (e.g. `https://miner.yourdomain.com` or `http://vps-ip:23432`) and optional API key.
 
+---
+
+### 🐳 Remote VPS Deployment (Docker / Dokploy)
+
+1. **Deploy with Docker Compose:**
+   ```bash
+   docker compose up -d
+   ```
+   Or deploy the repository via **Dokploy** as a Docker Compose stack.
+
+2. **Environment Variables:**
+   ```env
+   API_KEY=your_secure_api_key_here     # Protects the API & WebSockets
+   TWITCH_AUTH_TOKEN=your_token_here    # Optional: preset token
+   PORT=23432                           # Defaults to 23432
+   DATA_DIR=/app/data                   # Persists cookies.jar & settings.json
+   ```
+
+3. **Connect from macOS App:**
+   Open `TwitchDropsMinerEnhanced.app` on your Mac -> `Connection Settings` -> Select **Remote VPS** -> enter `http://<your-vps>:23432` and API key.
 ### Usage:
 
 - Download and unzip [the latest release](https://github.com/DevilXD/TwitchDropsMiner/releases) - it's recommended to keep it in the folder it comes in.

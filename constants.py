@@ -99,14 +99,17 @@ SCRIPTS_PATH = Path(VENV_PATH, SYS_SCRIPTS)
 # Translations path
 # NOTE: These don't have to be available to the end-user, so the path points to the internal dir
 LANG_PATH = _resource_path("lang")
+# Data storage directory (configurable via DATA_DIR environment variable for Docker)
+DATA_DIR = Path(os.environ.get("DATA_DIR", WORKING_DIR)).resolve()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 # Other Paths
-LOG_PATH = Path(WORKING_DIR, "log.txt")
-DUMP_PATH = Path(WORKING_DIR, "dump.dat")
-LOCK_PATH = Path(WORKING_DIR, "lock.file")
-CACHE_PATH = Path(WORKING_DIR, "cache")
+LOG_PATH = Path(DATA_DIR, "log.txt")
+DUMP_PATH = Path(DATA_DIR, "dump.dat")
+LOCK_PATH = Path(DATA_DIR, "lock.file")
+CACHE_PATH = Path(DATA_DIR, "cache")
 CACHE_DB = Path(CACHE_PATH, "mapping.json")
-COOKIES_PATH = Path(WORKING_DIR, "cookies.jar")
-SETTINGS_PATH = Path(WORKING_DIR, "settings.json")
+COOKIES_PATH = Path(DATA_DIR, "cookies.jar")
+SETTINGS_PATH = Path(DATA_DIR, "settings.json")
 # Typing
 JsonType = Dict[str, Any]
 URLType = NewType("URLType", str)

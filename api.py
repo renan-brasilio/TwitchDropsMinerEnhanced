@@ -16,15 +16,40 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("TwitchDrops.api")
 WEB_DIR = Path(WORKING_DIR, "web")
+API_KEY = os.environ.get("API_KEY", "").strip()
+
+
+@web.middleware
+async def auth_middleware(request: web.Request, handler):
+    api_key = os.environ.get("API_KEY", "").strip()
+    if not api_key:
+        return await handler(request)
+    # Allow static dashboard and options preflight
+    if request.path in ("/", "/index.html", "/favicon.ico") or request.path.startswith("/assets") or request.method == "OPTIONS":
+        return await handler(request)
+
+    auth_header = request.headers.get("Authorization", "")
+    token = ""
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+    elif "X-API-Key" in request.headers:
+        token = request.headers["X-API-Key"].strip()
+    elif "key" in request.query:
+        token = request.query["key"].strip()
+
+    if token != api_key:
+        return web.json_response({"error": "Unauthorized", "message": "Invalid or missing API key"}, status=401)
+
+    return await handler(request)
 
 
 class APIServer:
-    def __init__(self, twitch: Twitch, hub: StateHub, host: str = "127.0.0.1", port: int = 23432) -> None:
+    def __init__(self, twitch: Twitch, hub: StateHub, host: str | None = None, port: int = 23432) -> None:
         self._twitch = twitch
         self._hub = hub
-        self._host = host
+        self._host = host or os.environ.get("HOST", "127.0.0.1")
         self._port = port
-        self._app = web.Application()
+        self._app = web.Application(middlewares=[auth_middleware])
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
         self._ws_clients: set[web.WebSocketResponse] = set()

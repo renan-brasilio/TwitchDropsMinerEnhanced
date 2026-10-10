@@ -1,15 +1,52 @@
 import AppKit
+import WebKit
 import Foundation
 
-class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate {
+class WindowDelegate: NSObject, NSWindowDelegate {
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        sender.orderOut(nil)
+        return false // Hide instead of closing so menu bar stays active
+    }
+}
+
+class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate, WKNavigationDelegate {
+    var mainWindow: NSWindow!
+    var webView: WKWebView!
     var statusItem: NSStatusItem!
+    var windowDelegate = WindowDelegate()
+
     var webSocketTask: URLSessionWebSocketTask?
     var pollTimer: Timer?
     var backendProcess: Process?
 
-    var port: Int = 23432
-    var minerState: String = "OFFLINE"
-    var statusText: String = "Connecting to backend..."
+    // Configuration
+    var isRemote: Bool {
+        get { UserDefaults.standard.bool(forKey: "isRemote") }
+        set { UserDefaults.standard.set(newValue, forKey: "isRemote") }
+    }
+    var serverURLString: String {
+        get {
+            let val = UserDefaults.standard.string(forKey: "serverURL") ?? ""
+            return val.isEmpty ? "http://127.0.0.1:23432" : val
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "serverURL") }
+    }
+    var apiKey: String {
+        get { UserDefaults.standard.string(forKey: "apiKey") ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: "apiKey") }
+    }
+
+    var effectiveURL: URL {
+        let trimmed = serverURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+            return URL(string: trimmed) ?? URL(string: "http://127.0.0.1:23432")!
+        }
+        return URL(string: "http://\(trimmed)") ?? URL(string: "http://127.0.0.1:23432")!
+    }
+
+    // State cache
+    var minerState: String = "CONNECTING"
+    var statusText: String = "Connecting..."
     var activeGame: String? = nil
     var activeDropName: String? = nil
     var activeDropPercent: Double = 0.0
@@ -18,25 +55,38 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate 
     var activeChannel: String? = nil
     var activeViewers: Int = 0
     var isLoggedIn: Bool = false
-    var deviceCode: String? = nil
-    var deviceUri: String? = nil
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Setup Menu Bar Item
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = statusItem.button {
-            button.title = "⛏️ Drops"
-            button.toolTip = "Twitch Drops Miner Enhanced"
+        // 1. Setup Menu Bar Item
+        setupStatusItem()
+
+        // 2. Setup Main Native App Window
+        setupMainWindow()
+
+        // 3. Setup App Menus (for Cmd+Q, Cmd+W, Cmd+R shortcuts)
+        setupMainMenu()
+
+        // 4. In Local mode, verify and launch local backend if needed
+        if !isRemote {
+            checkOrStartLocalBackend()
         }
 
-        buildInitialMenu()
-        checkOrStartBackend()
+        // 5. Connect and Load Web View
+        reloadConnection()
 
-        // Start polling & WebSocket
-        connectWebSocket()
+        // 6. Polling backup timer
         pollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
             self?.pollStatus()
         }
+
+        // Make app active and show window
+        NSApp.activate(ignoringOtherApps: true)
+        mainWindow.makeKeyAndOrderFront(nil)
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showMainWindow()
+        return true
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -46,29 +96,223 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate 
         }
     }
 
-    // MARK: - Backend Process Management
-    func checkOrStartBackend() {
-        let url = URL(string: "http://127.0.0.1:\(port)/api/status")!
+    // MARK: - Native App Window & WebKit
+    func setupMainWindow() {
+        let screenRect = NSScreen.main?.visibleFrame ?? NSRect(x: 100, y: 100, width: 1100, height: 750)
+        let width: CGFloat = 1120
+        let height: CGFloat = 780
+        let x = screenRect.midX - (width / 2)
+        let y = screenRect.midY - (height / 2)
+        let windowRect = NSRect(x: x, y: y, width: width, height: height)
+
+        let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
+        mainWindow = NSWindow(contentRect: windowRect, styleMask: style, backing: .buffered, defer: false)
+        mainWindow.title = "Twitch Drops Miner Enhanced"
+        mainWindow.titlebarAppearsTransparent = false
+        mainWindow.isReleasedWhenClosed = false
+        mainWindow.minSize = NSSize(width: 820, height: 600)
+        mainWindow.delegate = windowDelegate
+
+        // WebKit Configuration
+        let config = WKWebViewConfiguration()
+        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+
+        webView = WKWebView(frame: mainWindow.contentView!.bounds, configuration: config)
+        webView.autoresizingMask = [.width, .height]
+        webView.navigationDelegate = self
+        mainWindow.contentView?.addSubview(webView)
+    }
+
+    func showMainWindow() {
+        mainWindow.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func setupMainMenu() {
+        let mainMenu = NSMenu()
+
+        // App Menu
+        let appMenuItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(NSMenuItem(title: "About Twitch Drops Miner Enhanced", action: nil, keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(NSMenuItem(title: "Connection Settings...", action: #selector(showConnectionSettings), keyEquivalent: ","))
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(NSMenuItem(title: "Hide Window", action: #selector(hideMainWindow), keyEquivalent: "w"))
+        appMenu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+
+        // View Menu
+        let viewMenuItem = NSMenuItem()
+        let viewMenu = NSMenu(title: "View")
+        viewMenu.addItem(NSMenuItem(title: "Reload Dashboard", action: #selector(reloadWebView), keyEquivalent: "r"))
+        viewMenu.addItem(NSMenuItem(title: "Show Main Window", action: #selector(showMainWindowAction), keyEquivalent: "1"))
+        viewMenuItem.submenu = viewMenu
+        mainMenu.addItem(viewMenuItem)
+
+        NSApp.mainMenu = mainMenu
+    }
+
+    @objc func hideMainWindow() {
+        mainWindow.orderOut(nil)
+    }
+
+    @objc func showMainWindowAction() {
+        showMainWindow()
+    }
+
+    @objc func reloadWebView() {
+        webView.reload()
+        connectWebSocket()
+    }
+
+    // MARK: - Menu Bar Setup
+    func setupStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let button = statusItem.button {
+            button.title = "⛏️ Drops"
+            button.toolTip = "Twitch Drops Miner Enhanced"
+        }
+        buildMenu()
+    }
+
+    func buildMenu() {
+        let menu = NSMenu()
+
+        // 1. Show Main Window Action
+        let showItem = NSMenuItem(title: "🖥️ Show Application Window", action: #selector(showMainWindowAction), keyEquivalent: "o")
+        showItem.attributedTitle = NSAttributedString(
+            string: "🖥️ Show Application Window",
+            attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]
+        )
+        menu.addItem(showItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // 2. Status Row with Indicator
+        let statusDot: String
+        switch minerState {
+        case "IDLE": statusDot = "🟡 Idle"
+        case "OFFLINE": statusDot = "🔴 Backend Offline"
+        case "CHANNEL_SWITCH", "CHANNELS_FETCH", "INVENTORY_FETCH": statusDot = "🔄 Updating"
+        default: statusDot = "🟢 Mining Active"
+        }
+        let modeStr = isRemote ? "(Remote VPS)" : "(Local)"
+        let statusMenuItem = NSMenuItem(title: "Status: \(statusDot) \(modeStr)", action: nil, keyEquivalent: "")
+        menu.addItem(statusMenuItem)
+
+        let detailItem = NSMenuItem(title: "Activity: \(statusText)", action: nil, keyEquivalent: "")
+        menu.addItem(detailItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // 3. Active Drop & Game
+        if let drop = activeDropName, let game = activeGame {
+            let dropHeader = NSMenuItem(title: "🎮 Game: \(game)", action: nil, keyEquivalent: "")
+            dropHeader.attributedTitle = NSAttributedString(
+                string: "🎮 Game: \(game)",
+                attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold)]
+            )
+            menu.addItem(dropHeader)
+
+            let dropItem = NSMenuItem(title: "🎁 Drop: \(drop)", action: nil, keyEquivalent: "")
+            menu.addItem(dropItem)
+
+            let bar = renderProgressBar(percent: activeDropPercent, length: 12)
+            let timeInfo = activeDropMinutes ?? ""
+            let progressStr = "⏳ Progress: \(bar) \(Int(activeDropPercent))% (\(timeInfo) • \(activeDropRemaining)m left)"
+            let progressItem = NSMenuItem(title: progressStr, action: nil, keyEquivalent: "")
+            menu.addItem(progressItem)
+        } else {
+            let noDropItem = NSMenuItem(title: "🎁 Drop: No Active Drop", action: nil, keyEquivalent: "")
+            noDropItem.isEnabled = false
+            menu.addItem(noDropItem)
+        }
+
+        // 4. Streamer info
+        if let ch = activeChannel {
+            let streamerStr = "📺 Watching: \(ch) (\(activeViewers.formatted()) viewers)"
+            menu.addItem(NSMenuItem(title: streamerStr, action: nil, keyEquivalent: ""))
+        } else {
+            let noStreamer = NSMenuItem(title: "📺 Watching: None", action: nil, keyEquivalent: "")
+            noStreamer.isEnabled = false
+            menu.addItem(noStreamer)
+        }
+
+        menu.addItem(NSMenuItem.separator())
+
+        // 5. Mining Controls
+        if minerState == "IDLE" {
+            menu.addItem(NSMenuItem(title: "▶ Resume Mining", action: #selector(resumeMining), keyEquivalent: "r"))
+        } else {
+            menu.addItem(NSMenuItem(title: "⏸ Pause Mining", action: #selector(pauseMining), keyEquivalent: "p"))
+        }
+        menu.addItem(NSMenuItem(title: "⏩ Switch Streamer", action: #selector(switchStreamer), keyEquivalent: "s"))
+        menu.addItem(NSMenuItem(title: "🎁 Claim All Drops", action: #selector(claimDropsAction), keyEquivalent: "c"))
+        menu.addItem(NSMenuItem(title: "🔄 Reload Campaigns", action: #selector(reloadCampaigns), keyEquivalent: ""))
+
+        menu.addItem(NSMenuItem.separator())
+
+        // 6. Settings & Config
+        menu.addItem(NSMenuItem(title: "⚙️ Connection Settings (Local / VPS)...", action: #selector(showConnectionSettings), keyEquivalent: ","))
+        menu.addItem(NSMenuItem(title: "🔑 Set Twitch Auth Token...", action: #selector(promptSetAuthToken), keyEquivalent: "t"))
+
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "❌ Quit", action: #selector(quitApp), keyEquivalent: "q"))
+
+        statusItem.menu = menu
+    }
+
+    func renderProgressBar(percent: Double, length: Int = 10) -> String {
+        let filled = max(0, min(length, Int(round(Double(length) * (percent / 100.0)))))
+        let empty = length - filled
+        let fillStr = String(repeating: "█", count: filled)
+        let emptyStr = String(repeating: "░", count: empty)
+        return "[\(fillStr)\(emptyStr)]"
+    }
+
+    func updateUI() {
+        if let button = statusItem.button {
+            if let game = activeGame, activeDropPercent > 0 {
+                button.title = "⛏️ \(Int(activeDropPercent))% \(game)"
+            } else if minerState == "IDLE" {
+                button.title = "⛏️ Idle"
+            } else if minerState == "OFFLINE" {
+                button.title = "⛏️ Offline"
+            } else {
+                button.title = "⛏️ Drops"
+            }
+        }
+        buildMenu()
+
+        // Update main window title with status
+        let modeText = isRemote ? "Remote [\(effectiveURL.host ?? "VPS")]" : "Local"
+        mainWindow.title = "Twitch Drops Miner Enhanced — \(statusText) (\(modeText))"
+    }
+
+    // MARK: - Local Backend Auto-Start
+    func checkOrStartLocalBackend() {
+        let url = URL(string: "http://127.0.0.1:23432/api/status")!
         var request = URLRequest(url: url)
         request.timeoutInterval = 1.0
 
         URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
             if error != nil {
-                // Backend not responding, attempt to launch it
                 DispatchQueue.main.async {
-                    self?.spawnBackend()
+                    self?.spawnLocalBackend()
                 }
             }
         }.resume()
     }
 
-    func spawnBackend() {
+    func spawnLocalBackend() {
         let fileManager = FileManager.default
         let possibleDirs = [
             Bundle.main.bundleURL.deletingLastPathComponent().path,
             (Bundle.main.bundleURL.deletingLastPathComponent().path as NSString).appendingPathComponent(".."),
             "/Users/renanrocha/tmp/TwitchDropsMinerEnhanced",
-            FileManager.default.currentDirectoryPath
+            fileManager.currentDirectoryPath
         ]
 
         var scriptPath: String? = nil
@@ -86,32 +330,56 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate 
             }
         }
 
-        guard let script = scriptPath else {
-            print("Could not locate main.py")
-            return
-        }
-
+        guard let script = scriptPath else { return }
         let pythonExec = venvPython ?? (fileManager.fileExists(atPath: "/opt/homebrew/bin/python3.14") ? "/opt/homebrew/bin/python3.14" : "/usr/bin/python3")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: pythonExec)
-        process.arguments = [script]
+        process.arguments = [script, "--no-browser"]
         process.currentDirectoryURL = URL(fileURLWithPath: (script as NSString).deletingLastPathComponent)
 
         do {
             try process.run()
             self.backendProcess = process
-            print("Spawned backend process with PID \(process.processIdentifier)")
+            print("Spawned local backend PID \(process.processIdentifier)")
         } catch {
-            print("Failed to spawn backend process: \(error)")
+            print("Failed to spawn local backend: \(error)")
         }
     }
 
-    // MARK: - WebSocket & Polling
+    // MARK: - Connection & WebSockets
+    func reloadConnection() {
+        var targetURL = effectiveURL
+        if !apiKey.isEmpty {
+            var comps = URLComponents(url: targetURL, resolvingAgainstBaseURL: false)
+            var items = comps?.queryItems ?? []
+            items.append(URLQueryItem(name: "key", value: apiKey))
+            comps?.queryItems = items
+            if let u = comps?.url {
+                targetURL = u
+            }
+        }
+
+        var request = URLRequest(url: targetURL)
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+        webView.load(request)
+        connectWebSocket()
+    }
+
     func connectWebSocket() {
-        let url = URL(string: "ws://127.0.0.1:\(port)/ws")!
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        var wsURLComponents = URLComponents(url: effectiveURL, resolvingAgainstBaseURL: false)
+        wsURLComponents?.scheme = (effectiveURL.scheme == "https") ? "wss" : "ws"
+        wsURLComponents?.path = "/ws"
+        if !apiKey.isEmpty {
+            wsURLComponents?.queryItems = [URLQueryItem(name: "key", value: apiKey)]
+        }
+
+        guard let wsURL = wsURLComponents?.url else { return }
         let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
-        webSocketTask = session.webSocketTask(with: url)
+        webSocketTask = session.webSocketTask(with: wsURL)
         webSocketTask?.resume()
         receiveWebSocketMessage()
     }
@@ -132,8 +400,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate 
                 }
                 self?.receiveWebSocketMessage()
             case .failure:
-                // Reconnect after delay
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
                     self?.connectWebSocket()
                 }
             }
@@ -180,17 +447,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate 
                     self.activeViewers = 0
                 }
                 self.updateUI()
-            } else if event == "auth_code", let codeData = payload as? [String: Any] {
-                self.deviceCode = codeData["code"] as? String
-                self.deviceUri = codeData["uri"] as? String
-                self.updateUI()
             }
         }
     }
 
     func pollStatus() {
-        guard let url = URL(string: "http://127.0.0.1:\(port)/api/status") else { return }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
+        guard let url = URL(string: "\(effectiveURL.absoluteString)/api/status") else { return }
+        var req = URLRequest(url: url)
+        if !apiKey.isEmpty {
+            req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+        URLSession.shared.dataTask(with: req) { [weak self] data, _, error in
             guard let data = data, error == nil,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 DispatchQueue.main.async {
@@ -236,189 +503,41 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate 
             activeViewers = 0
         }
 
-        if let dc = json["device_code"] as? [String: Any] {
-            deviceCode = dc["code"] as? String
-            deviceUri = dc["uri"] as? String
-        } else {
-            deviceCode = nil
-            deviceUri = nil
-        }
-
         updateUI()
     }
 
-    // MARK: - UI & Menu Bar Rendering
-    func renderProgressBar(percent: Double, length: Int = 10) -> String {
-        let filled = max(0, min(length, Int(round(Double(length) * (percent / 100.0)))))
-        let empty = length - filled
-        let fillStr = String(repeating: "█", count: filled)
-        let emptyStr = String(repeating: "░", count: empty)
-        return "[\(fillStr)\(emptyStr)]"
-    }
-
-    func updateUI() {
-        if let button = statusItem.button {
-            if let game = activeGame, activeDropPercent > 0 {
-                button.title = "⛏️ \(Int(activeDropPercent))% \(game)"
-            } else if minerState == "IDLE" {
-                button.title = "⛏️ Idle"
-            } else if minerState == "OFFLINE" {
-                button.title = "⛏️ Offline"
-            } else {
-                button.title = "⛏️ Drops"
-            }
-        }
-        buildMenu()
-    }
-
-    func buildInitialMenu() {
-        let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Twitch Drops Miner Enhanced", action: nil, keyEquivalent: ""))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Status: Connecting...", action: nil, keyEquivalent: ""))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Open Dashboard...", action: #selector(openDashboard), keyEquivalent: "d"))
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
-        statusItem.menu = menu
-    }
-
-    func buildMenu() {
-        let menu = NSMenu()
-
-        // Title Header
-        let titleItem = NSMenuItem(title: "Twitch Drops Miner Enhanced", action: nil, keyEquivalent: "")
-        titleItem.attributedTitle = NSAttributedString(
-            string: "Twitch Drops Miner Enhanced",
-            attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]
-        )
-        menu.addItem(titleItem)
-
-        // Status Item with Color Indicator
-        let statusDot: String
-        switch minerState {
-        case "IDLE": statusDot = "🟡 Idle"
-        case "OFFLINE": statusDot = "🔴 Backend Offline"
-        case "CHANNEL_SWITCH", "CHANNELS_FETCH", "INVENTORY_FETCH": statusDot = "🔄 Updating"
-        default: statusDot = "🟢 Mining Active"
-        }
-        let statusMenuItem = NSMenuItem(title: "Status: \(statusDot) — \(statusText)", action: nil, keyEquivalent: "")
-        menu.addItem(statusMenuItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Active Drop Section
-        if let drop = activeDropName, let game = activeGame {
-            let dropHeader = NSMenuItem(title: "🎮 Game: \(game)", action: nil, keyEquivalent: "")
-            dropHeader.attributedTitle = NSAttributedString(
-                string: "🎮 Game: \(game)",
-                attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold)]
-            )
-            menu.addItem(dropHeader)
-
-            let dropItem = NSMenuItem(title: "🎁 Drop: \(drop)", action: nil, keyEquivalent: "")
-            menu.addItem(dropItem)
-
-            let bar = renderProgressBar(percent: activeDropPercent, length: 12)
-            let timeInfo = activeDropMinutes ?? ""
-            let progressStr = "⏳ Progress: \(bar) \(Int(activeDropPercent))% (\(timeInfo) • \(activeDropRemaining)m left)"
-            let progressItem = NSMenuItem(title: progressStr, action: nil, keyEquivalent: "")
-            menu.addItem(progressItem)
-        } else {
-            let noDropItem = NSMenuItem(title: "🎁 Drop: No Active Drop", action: nil, keyEquivalent: "")
-            noDropItem.isEnabled = false
-            menu.addItem(noDropItem)
-        }
-
-        // Active Streamer Section
-        if let ch = activeChannel {
-            let streamerStr = "📺 Watching: \(ch) (\(activeViewers.formatted()) viewers)"
-            let streamerItem = NSMenuItem(title: streamerStr, action: nil, keyEquivalent: "")
-            menu.addItem(streamerItem)
-        } else {
-            let noStreamer = NSMenuItem(title: "📺 Watching: None", action: nil, keyEquivalent: "")
-            noStreamer.isEnabled = false
-            menu.addItem(noStreamer)
-        }
-
-        // Activation Prompt if Device Code is required
-        if let code = deviceCode {
-            menu.addItem(NSMenuItem.separator())
-            let alertItem = NSMenuItem(title: "⚠️ Activation Code: \(code)", action: #selector(openActivation), keyEquivalent: "")
-            alertItem.attributedTitle = NSAttributedString(
-                string: "⚠️ Activation Code: \(code) (Click to Activate)",
-                attributes: [.foregroundColor: NSColor.systemOrange, .font: NSFont.boldSystemFont(ofSize: 12)]
-            )
-            menu.addItem(alertItem)
-        }
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Action Controls
-        if minerState == "IDLE" {
-            menu.addItem(NSMenuItem(title: "▶ Resume Mining", action: #selector(resumeMining), keyEquivalent: "r"))
-        } else {
-            menu.addItem(NSMenuItem(title: "⏸ Pause Mining", action: #selector(pauseMining), keyEquivalent: "p"))
-        }
-        menu.addItem(NSMenuItem(title: "⏩ Switch Streamer", action: #selector(switchStreamer), keyEquivalent: "s"))
-        menu.addItem(NSMenuItem(title: "🎁 Claim All Drops", action: #selector(claimDropsAction), keyEquivalent: "c"))
-        menu.addItem(NSMenuItem(title: "🔄 Reload Campaigns", action: #selector(reloadCampaigns), keyEquivalent: ""))
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Quick Links & Config
-        menu.addItem(NSMenuItem(title: "🌐 Open Web Dashboard...", action: #selector(openDashboard), keyEquivalent: "d"))
-        menu.addItem(NSMenuItem(title: "🔑 Set Twitch Auth Token...", action: #selector(promptSetAuthToken), keyEquivalent: "t"))
-
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "❌ Quit Twitch Drops Miner", action: #selector(quitApp), keyEquivalent: "q"))
-
-        statusItem.menu = menu
-    }
-
     // MARK: - Actions
-    @objc func openDashboard() {
-        if let url = URL(string: "http://127.0.0.1:\(port)") {
-            NSWorkspace.shared.open(url)
+    func sendPostRequest(endpoint: String, json: [String: Any]? = nil) {
+        guard let url = URL(string: "\(effectiveURL.absoluteString)\(endpoint)") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
-    }
 
-    @objc func openActivation() {
-        let uri = deviceUri ?? "https://www.twitch.tv/activate"
-        if let url = URL(string: uri) {
-            NSWorkspace.shared.open(url)
+        if let json = json, let data = try? JSONSerialization.data(withJSONObject: json) {
+            request.httpBody = data
         }
+
+        URLSession.shared.dataTask(with: request) { [weak self] _, _, _ in
+            self?.pollStatus()
+        }.resume()
     }
 
-    @objc func pauseMining() {
-        sendPostRequest(endpoint: "/api/control/pause")
-    }
-
-    @objc func resumeMining() {
-        sendPostRequest(endpoint: "/api/control/resume")
-    }
-
-    @objc func switchStreamer() {
-        sendPostRequest(endpoint: "/api/control/switch")
-    }
-
-    @objc func reloadCampaigns() {
-        sendPostRequest(endpoint: "/api/control/reload")
-    }
-
-    @objc func claimDropsAction() {
-        sendPostRequest(endpoint: "/api/control/claim")
-    }
+    @objc func pauseMining() { sendPostRequest(endpoint: "/api/control/pause") }
+    @objc func resumeMining() { sendPostRequest(endpoint: "/api/control/resume") }
+    @objc func switchStreamer() { sendPostRequest(endpoint: "/api/control/switch") }
+    @objc func reloadCampaigns() { sendPostRequest(endpoint: "/api/control/reload") }
+    @objc func claimDropsAction() { sendPostRequest(endpoint: "/api/control/claim") }
 
     @objc func promptSetAuthToken() {
         let alert = NSAlert()
         alert.messageText = "Set Twitch Auth Token"
         alert.informativeText = "Paste your 30-character 'auth-token' cookie from twitch.tv to log in directly:"
-        alert.alertStyle = .informational
-
-        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
         input.placeholderString = "abcdef0123456789..."
         alert.accessoryView = input
-
         alert.addButton(withTitle: "Save Token")
         alert.addButton(withTitle: "Cancel")
 
@@ -430,19 +549,68 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate 
         }
     }
 
-    func sendPostRequest(endpoint: String, json: [String: Any]? = nil) {
-        guard let url = URL(string: "http://127.0.0.1:\(port)\(endpoint)") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    // MARK: - Connection Settings Modal (Local vs Remote VPS)
+    @objc func showConnectionSettings() {
+        let alert = NSAlert()
+        alert.messageText = "Connection Settings"
+        alert.informativeText = "Configure whether this app connects to a local miner or a remote VPS Docker container:"
+        alert.alertStyle = .informational
 
-        if let json = json, let data = try? JSONSerialization.data(withJSONObject: json) {
-            request.httpBody = data
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 160))
+
+        // Mode Segmented Control
+        let modeLabel = NSTextField(labelWithString: "Connection Mode:")
+        modeLabel.frame = NSRect(x: 0, y: 130, width: 140, height: 20)
+        modeLabel.font = NSFont.boldSystemFont(ofSize: 12)
+        container.addSubview(modeLabel)
+
+        let modeSegment = NSSegmentedControl(labels: ["Local Daemon", "Remote VPS / Docker"], trackingMode: .selectOne, target: nil, action: nil)
+        modeSegment.frame = NSRect(x: 140, y: 128, width: 270, height: 24)
+        modeSegment.selectedSegment = isRemote ? 1 : 0
+        container.addSubview(modeSegment)
+
+        // Remote URL
+        let urlLabel = NSTextField(labelWithString: "Server URL:")
+        urlLabel.frame = NSRect(x: 0, y: 88, width: 140, height: 20)
+        container.addSubview(urlLabel)
+
+        let urlInput = NSTextField(frame: NSRect(x: 140, y: 85, width: 270, height: 24))
+        urlInput.stringValue = serverURLString
+        urlInput.placeholderString = "http://100.77.235.18:23432 or https://..."
+        container.addSubview(urlInput)
+
+        // API Key
+        let keyLabel = NSTextField(labelWithString: "API Key (Optional):")
+        keyLabel.frame = NSRect(x: 0, y: 48, width: 140, height: 20)
+        container.addSubview(keyLabel)
+
+        let keyInput = NSSecureTextField(frame: NSRect(x: 140, y: 45, width: 270, height: 24))
+        keyInput.stringValue = apiKey
+        keyInput.placeholderString = "Leave empty if not required"
+        container.addSubview(keyInput)
+
+        let hint = NSTextField(labelWithString: "Local uses http://127.0.0.1:23432. Remote connects to your Docker container.")
+        hint.frame = NSRect(x: 0, y: 8, width: 420, height: 28)
+        hint.font = NSFont.systemFont(ofSize: 11)
+        hint.textColor = NSColor.secondaryLabelColor
+        container.addSubview(hint)
+
+        alert.accessoryView = container
+        alert.addButton(withTitle: "Save & Connect")
+        alert.addButton(withTitle: "Cancel")
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            let newIsRemote = (modeSegment.selectedSegment == 1)
+            let newURL = urlInput.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let newKey = keyInput.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            self.isRemote = newIsRemote
+            self.serverURLString = newURL.isEmpty ? (newIsRemote ? "http://vps:23432" : "http://127.0.0.1:23432") : newURL
+            self.apiKey = newKey
+
+            print("Updated connection: isRemote=\(self.isRemote), url=\(self.serverURLString)")
+            reloadConnection()
         }
-
-        URLSession.shared.dataTask(with: request) { [weak self] _, _, _ in
-            self?.pollStatus()
-        }.resume()
     }
 
     @objc func quitApp() {
@@ -450,9 +618,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate 
     }
 }
 
-// Application Entry Point
+// App Entry Point
 let app = NSApplication.shared
-app.setActivationPolicy(.accessory) // Runs as a clean menu bar extra without docking icon
+app.setActivationPolicy(.regular) // Full native macOS application with Dock icon and Window!
 let delegate = AppDelegate()
 app.delegate = delegate
 app.run()

@@ -726,10 +726,25 @@
   <script>
     let ws = null;
     let appState = {};
+    const urlParams = new URLSearchParams(window.location.search);
+    const apiKey = urlParams.get('key') || '';
+
+    function apiFetch(url, options = {}) {
+      const headers = options.headers || {};
+      if (apiKey) {
+        headers['Authorization'] = 'Bearer ' + apiKey;
+      }
+      options.headers = headers;
+      let targetUrl = url;
+      if (apiKey && !url.includes('key=')) {
+        targetUrl += (url.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(apiKey);
+      }
+      return fetch(targetUrl, options);
+    }
 
     function initWebSocket() {
       const loc = window.location;
-      const wsUrl = (loc.protocol === 'https:' ? 'wss://' : 'ws://') + loc.host + '/ws';
+      const wsUrl = (loc.protocol === 'https:' ? 'wss://' : 'ws://') + loc.host + '/ws' + (apiKey ? '?key=' + encodeURIComponent(apiKey) : '');
       ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
@@ -924,7 +939,7 @@
 
     async function controlAction(action) {
       try {
-        await fetch('/api/control/' + action, { method: 'POST' });
+        await apiFetch('/api/control/' + action, { method: 'POST' });
       } catch (e) {
         console.error(e);
       }
@@ -932,7 +947,7 @@
 
     async function claimDrops() {
       try {
-        const res = await fetch('/api/control/claim', { method: 'POST' });
+        const res = await apiFetch('/api/control/claim', { method: 'POST' });
         const data = await res.json();
         alert(`Claimed ${data.claimed} drops!`);
       } catch (e) {
@@ -942,7 +957,7 @@
 
     async function fetchSettings() {
       try {
-        const res = await fetch('/api/settings');
+        const res = await apiFetch('/api/settings');
         const data = await res.json();
         document.getElementById('priorityText').value = (data.priority || []).join('\n');
         document.getElementById('priorityModeSelect').value = data.priority_mode || 0;
@@ -956,7 +971,7 @@
       const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
       const mode = parseInt(document.getElementById('priorityModeSelect').value, 10);
       try {
-        await fetch('/api/settings', {
+        await apiFetch('/api/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ priority: lines, priority_mode: mode })
@@ -974,7 +989,7 @@
         return;
       }
       try {
-        const res = await fetch('/api/auth/token', {
+        const res = await apiFetch('/api/auth/token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token })
@@ -988,7 +1003,7 @@
 
     window.addEventListener('DOMContentLoaded', () => {
       initWebSocket();
-      fetch('/api/logs').then(r => r.json()).then(logs => {
+      apiFetch('/api/logs').then(r => r.json()).then(logs => {
         logs.forEach(appendLog);
       }).catch(() => {});
     });
