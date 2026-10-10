@@ -148,19 +148,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         let errorHTML = """
         <!DOCTYPE html><html><head><meta charset="utf-8">
         <style>
-        body { background: #090a0f; color: #f0f3fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
-        .card { background: #12151e; border: 1px solid #1e2433; border-radius: 14px; padding: 36px 40px; max-width: 480px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .icon { font-size: 40px; margin-bottom: 16px; }
-        h2 { margin-bottom: 12px; font-size: 1.35rem; }
-        p { color: #8c97b0; font-size: 0.9rem; line-height: 1.6; margin-bottom: 22px; }
-        .btn { background: #9146ff; color: #fff; border: none; border-radius: 8px; padding: 10px 22px; font-weight: 600; font-size: 0.9rem; cursor: pointer; }
+        body { background: #0e0e10; color: #efeff1; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
+        .card { background: #18181b; border: 1px solid #2d2d35; border-radius: 8px; padding: 32px 36px; max-width: 440px; }
+        h2 { margin-bottom: 8px; font-size: 16px; font-weight: 600; }
+        p { color: #adadb8; font-size: 13px; line-height: 1.5; margin-bottom: 20px; }
+        .btn { background: #9146ff; color: #fff; border: 1px solid #9146ff; border-radius: 6px; padding: 8px 16px; font-weight: 500; font-size: 13px; cursor: pointer; }
         .btn:hover { background: #772ce8; }
-        code { background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px; color: #f59e0b; }
+        code { background: #1f1f23; padding: 2px 5px; border-radius: 4px; color: #efeff1; font-family: monospace; font-size: 12px; }
         </style></head><body>
         <div class="card">
-        <div class="icon">⛏️</div>
-        <h2>Connecting to Miner Backend...</h2>
-        <p>Connecting to <strong>\(modeStr)</strong>.<br>The daemon is initializing. This page will automatically refresh once the connection is established.</p>
+        <h2>Connecting to Miner Daemon</h2>
+        <p>Target: <code>\(modeStr)</code><br>The service is starting. This view will refresh automatically once connected.</p>
         <button class="btn" onclick="location.reload()">Retry Connection</button>
         </div>
         <script>setTimeout(function(){ location.reload(); }, 2000);</script>
@@ -227,9 +225,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         let menu = NSMenu()
 
         // 1. Show Main Window Action
-        let showItem = NSMenuItem(title: "🖥️ Show Application Window", action: #selector(showMainWindowAction), keyEquivalent: "o")
+        let showItem = NSMenuItem(title: "Open Dashboard Window", action: #selector(showMainWindowAction), keyEquivalent: "o")
         showItem.attributedTitle = NSAttributedString(
-            string: "🖥️ Show Application Window",
+            string: "Open Dashboard Window",
             attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]
         )
         menu.addItem(showItem)
@@ -239,49 +237,49 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         // 2. Status Row with Indicator
         let statusDot: String
         switch minerState {
-        case "IDLE": statusDot = "🟡 Idle"
-        case "OFFLINE": statusDot = "🔴 Backend Offline"
-        case "CHANNEL_SWITCH", "CHANNELS_FETCH", "INVENTORY_FETCH": statusDot = "🔄 Updating"
-        default: statusDot = "🟢 Mining Active"
+        case "IDLE": statusDot = "○ Idle"
+        case "OFFLINE": statusDot = "■ Offline"
+        case "CHANNEL_SWITCH", "CHANNELS_FETCH", "INVENTORY_FETCH": statusDot = "↻ Syncing"
+        default: statusDot = "● Active"
         }
-        let modeStr = isRemote ? "(Remote VPS)" : "(Local)"
+        let modeStr = isRemote ? "[Remote]" : "[Local]"
         let statusMenuItem = NSMenuItem(title: "Status: \(statusDot) \(modeStr)", action: nil, keyEquivalent: "")
         menu.addItem(statusMenuItem)
 
-        let detailItem = NSMenuItem(title: "Activity: \(statusText)", action: nil, keyEquivalent: "")
+        let detailItem = NSMenuItem(title: "Task: \(statusText)", action: nil, keyEquivalent: "")
         menu.addItem(detailItem)
 
         menu.addItem(NSMenuItem.separator())
 
         // 3. Active Drop & Game
         if let drop = activeDropName, let game = activeGame {
-            let dropHeader = NSMenuItem(title: "🎮 Game: \(game)", action: nil, keyEquivalent: "")
+            let dropHeader = NSMenuItem(title: "Game: \(game)", action: nil, keyEquivalent: "")
             dropHeader.attributedTitle = NSAttributedString(
-                string: "🎮 Game: \(game)",
+                string: "Game: \(game)",
                 attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold)]
             )
             menu.addItem(dropHeader)
 
-            let dropItem = NSMenuItem(title: "🎁 Drop: \(drop)", action: nil, keyEquivalent: "")
+            let dropItem = NSMenuItem(title: "Reward: \(drop)", action: nil, keyEquivalent: "")
             menu.addItem(dropItem)
 
-            let bar = renderProgressBar(percent: activeDropPercent, length: 12)
+            let bar = renderProgressBar(percent: activeDropPercent, length: 10)
             let timeInfo = activeDropMinutes ?? ""
-            let progressStr = "⏳ Progress: \(bar) \(Int(activeDropPercent))% (\(timeInfo) • \(activeDropRemaining)m left)"
+            let progressStr = "Progress: \(bar) \(Int(activeDropPercent))% (\(timeInfo) • \(activeDropRemaining)m left)"
             let progressItem = NSMenuItem(title: progressStr, action: nil, keyEquivalent: "")
             menu.addItem(progressItem)
         } else {
-            let noDropItem = NSMenuItem(title: "🎁 Drop: No Active Drop", action: nil, keyEquivalent: "")
+            let noDropItem = NSMenuItem(title: "Reward: None active", action: nil, keyEquivalent: "")
             noDropItem.isEnabled = false
             menu.addItem(noDropItem)
         }
 
         // 4. Streamer info
         if let ch = activeChannel {
-            let streamerStr = "📺 Watching: \(ch) (\(activeViewers.formatted()) viewers)"
+            let streamerStr = "Channel: \(ch) (\(activeViewers.formatted()) viewers)"
             menu.addItem(NSMenuItem(title: streamerStr, action: nil, keyEquivalent: ""))
         } else {
-            let noStreamer = NSMenuItem(title: "📺 Watching: None", action: nil, keyEquivalent: "")
+            let noStreamer = NSMenuItem(title: "Channel: None", action: nil, keyEquivalent: "")
             noStreamer.isEnabled = false
             menu.addItem(noStreamer)
         }
@@ -290,22 +288,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
 
         // 5. Mining Controls
         if minerState == "IDLE" {
-            menu.addItem(NSMenuItem(title: "▶ Resume Mining", action: #selector(resumeMining), keyEquivalent: "r"))
+            menu.addItem(NSMenuItem(title: "Resume Mining", action: #selector(resumeMining), keyEquivalent: "r"))
         } else {
-            menu.addItem(NSMenuItem(title: "⏸ Pause Mining", action: #selector(pauseMining), keyEquivalent: "p"))
+            menu.addItem(NSMenuItem(title: "Pause Mining", action: #selector(pauseMining), keyEquivalent: "p"))
         }
-        menu.addItem(NSMenuItem(title: "⏩ Switch Streamer", action: #selector(switchStreamer), keyEquivalent: "s"))
-        menu.addItem(NSMenuItem(title: "🎁 Claim All Drops", action: #selector(claimDropsAction), keyEquivalent: "c"))
-        menu.addItem(NSMenuItem(title: "🔄 Reload Campaigns", action: #selector(reloadCampaigns), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Next Streamer", action: #selector(switchStreamer), keyEquivalent: "s"))
+        menu.addItem(NSMenuItem(title: "Claim Eligible Drops", action: #selector(claimDropsAction), keyEquivalent: "c"))
+        menu.addItem(NSMenuItem(title: "Reload Campaigns", action: #selector(reloadCampaigns), keyEquivalent: ""))
 
         menu.addItem(NSMenuItem.separator())
 
         // 6. Settings & Config
-        menu.addItem(NSMenuItem(title: "⚙️ Connection Settings (Local / VPS)...", action: #selector(showConnectionSettings), keyEquivalent: ","))
-        menu.addItem(NSMenuItem(title: "🔑 Set Twitch Auth Token...", action: #selector(promptSetAuthToken), keyEquivalent: "t"))
+        menu.addItem(NSMenuItem(title: "Connection Settings...", action: #selector(showConnectionSettings), keyEquivalent: ","))
+        menu.addItem(NSMenuItem(title: "Twitch Auth Token...", action: #selector(promptSetAuthToken), keyEquivalent: "t"))
 
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "❌ Quit", action: #selector(quitApp), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
 
         statusItem.menu = menu
     }
