@@ -15,8 +15,12 @@ if __name__ == "__main__":
     import argparse
     import warnings
     import traceback
-    import tkinter as tk
-    from tkinter import messagebox
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+    except (ImportError, ModuleNotFoundError):
+        tk = None
+        messagebox = None
     from typing import NoReturn, TYPE_CHECKING
 
     import truststore
@@ -29,6 +33,7 @@ if __name__ == "__main__":
     from exceptions import CaptchaRequired
     from utils import lock_file, resource_path, set_root_icon
     from constants import LOGGING_LEVELS, SELF_PATH, FILE_FORMATTER, LOG_PATH, LOCK_PATH
+    from api import APIServer
 
     if TYPE_CHECKING:
         from _typeshed import SupportsWrite
@@ -59,7 +64,14 @@ if __name__ == "__main__":
             try:
                 super().exit(status, message)  # sys.exit(2)
             finally:
-                messagebox.showerror("Argument Parser Error", self._message.getvalue())
+                val = self._message.getvalue()
+                if messagebox is not None:
+                    try:
+                        messagebox.showerror("Argument Parser Error", val)
+                    except Exception:
+                        sys.stderr.write(val)
+                else:
+                    sys.stderr.write(val)
 
     class ParsedArgs(argparse.Namespace):
         _verbose: int
@@ -98,11 +110,14 @@ if __name__ == "__main__":
     # handle input parameters
     # NOTE: parser output is shown via message box
     # we also need a dummy invisible window for the parser
-    root = tk.Tk()
-    root.overrideredirect(True)
-    root.withdraw()
-    set_root_icon(root, resource_path("icons/pickaxe.ico"))
-    root.update()
+    if tk is not None:
+        root = tk.Tk()
+        root.overrideredirect(True)
+        root.withdraw()
+        set_root_icon(root, resource_path("icons/pickaxe.ico"))
+        root.update()
+    else:
+        root = None
     parser = Parser(
         SELF_PATH.name,
         description="A program that allows you to mine timed drops on Twitch.",
@@ -124,14 +139,15 @@ if __name__ == "__main__":
     try:
         settings = Settings(args)
     except Exception:
-        messagebox.showerror(
-            "Settings error",
-            f"There was an error while loading the settings file:\n\n{traceback.format_exc()}"
-        )
+        err_msg = f"There was an error while loading the settings file:\n\n{traceback.format_exc()}"
+        if messagebox is not None:
+            messagebox.showerror("Settings error", err_msg)
+        else:
+            sys.stderr.write(err_msg + "\n")
         sys.exit(4)
     # dummy window isn't needed anymore
-    root.destroy()
-    # get rid of unneeded objects
+    if root is not None:
+        root.destroy()
     del root, parser
 
     # client run
@@ -159,10 +175,12 @@ if __name__ == "__main__":
 
         exit_status = 0
         client = Twitch(settings)
+        api_server = APIServer(client, client.gui, port=getattr(settings, "api_port", 23432))
+        await api_server.start()
         loop = asyncio.get_running_loop()
-        if sys.platform == "linux":
-            loop.add_signal_handler(signal.SIGINT, lambda *_: client.gui.close())
-            loop.add_signal_handler(signal.SIGTERM, lambda *_: client.gui.close())
+        if sys.platform in ("linux", "darwin"):
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, lambda *_: client.gui.close())
         try:
             await client.run()
         except CaptchaRequired:
@@ -175,11 +193,12 @@ if __name__ == "__main__":
             client.print("Fatal error encountered:\n")
             client.print(traceback.format_exc())
         finally:
-            if sys.platform == "linux":
-                loop.remove_signal_handler(signal.SIGINT)
-                loop.remove_signal_handler(signal.SIGTERM)
+            if sys.platform in ("linux", "darwin"):
+                for sig in (signal.SIGINT, signal.SIGTERM):
+                    loop.remove_signal_handler(sig)
             client.print(_("gui", "status", "exiting"))
             await client.shutdown()
+            await api_server.stop()
         if not client.gui.close_requested:
             # user didn't request the closure
             client.gui.tray.change_icon("error")

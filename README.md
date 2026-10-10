@@ -1,21 +1,39 @@
-# Twitch Drops Miner
+# Twitch Drops Miner Enhanced ⛏️
 
-This application allows you to AFK mine timed Twitch drops, without having to worry about switching channels when the one you were watching goes offline, claiming the drops, or even receiving the stream data itself. This helps you save on bandwidth and hassle.
+**Twitch Drops Miner Enhanced** is a high-performance refactor of DevilXD's TwitchDropsMiner, redesigned specifically for a seamless experience on macOS and modern systems.
 
-### How It Works:
+### ✨ Key Enhancements:
 
-Every several seconds, the application pretends to watch a particular stream by fetching stream metadata - this is enough to advance the drops. Note that this completely bypasses the need to download any actual stream video and sound. To keep the status (ONLINE or OFFLINE) of the channels up-to-date, there's a websocket connection established that receives events about streams going up or down, or updates regarding the current amount of viewers.
+- **🍎 Native macOS Menu Bar Status App (`TwitchDropsMinerEnhanced.app`)**:
+  - Sits directly in your macOS menu bar as a lightweight status extra (`NSStatusItem`).
+  - Displays live mining status, drop progress bars (`[████████░░] 75%`), streamer info, and remaining minutes.
+  - Quick actions from the menu: Pause/Resume, Switch Streamer, Claim Drops, and Open Dashboard.
+  - Native macOS notifications when drops are claimed.
+- **🌐 Modern Dark-Mode Web Dashboard**:
+  - Beautiful macOS-inspired glassmorphism interface with Apple typography (`SF Pro`).
+  - Real-time reactive updates over WebSockets (0% polling lag).
+  - Interactive campaigns gallery, channels monitoring table, live console log viewer, and visual game priority manager.
+- **⚡ Zero Lag & Decoupled Architecture**:
+  - Eliminated the blocking 50-100Hz Tkinter polling loop that caused UI stutter, beachballs, and high CPU usage on macOS.
+  - Engine runs as an async, event-driven background service with 0.0% idle CPU usage.
+- **🔐 Modern Authentication & Fixes**:
+  - **Fixed `KeyError: 'device_code'`**: Uses active SMARTBOX client for Twitch OAuth device-code activation.
+  - **Direct `auth-token` support**: Simply paste your browser's Twitch `auth-token` cookie for instant, 100% captcha-free authentication.
+  - **Updated GQL Persisted Queries**: Refreshed hashes for `Inventory`, `Campaigns`, `AvailableDrops`, and `DirectoryPage_Game` (including newly required `includeCostreaming` and `sortTypeIsRecency` variables).
+  - **Fixed PubSub Channel Refresh Race**: Prevents channel reconciliation crashes when streams refresh while websockets are listening.
 
-### Features:
+### 🚀 Quick Start (macOS):
 
-- Stream-less drop mining - save on bandwidth.
-- Game priority and exclusion lists, allowing you to focus on mining what you want, in the order you want, and ignore what you don't want.
-- Sharded websocket connection, allowing for tracking up to `199` channels at the same time.
-- Automatic drop campaigns discovery based on linked accounts (requires you to do [account linking](https://www.twitch.tv/drops/campaigns) yourself though).
-- Stream tags and drop campaign validation, to ensure you won't end up mining a stream that can't earn you the drop.
-- Automatic channel stream switching, when the one you were currently watching goes offline, as well as when a channel streaming a higher priority game goes online.
-- Login session is saved in a cookies file, so you don't need to login every time.
-- Mining is automatically started as new campaigns appear, and stopped when the last available drops have been mined.
+1. **Build the Menu Bar App:**
+   ```bash
+   ./build_mac.sh
+   ```
+2. **Run:**
+   ```bash
+   open TwitchDropsMinerEnhanced.app
+   ```
+3. **Web Dashboard:**
+   Open [http://127.0.0.1:23432](http://127.0.0.1:23432) in your browser.
 
 ### Usage:
 

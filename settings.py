@@ -23,6 +23,8 @@ class SettingsFile(TypedDict):
     enable_badges_emotes: bool
     available_drops_check: bool
     priority_mode: PriorityMode
+    auth_token: str
+    api_port: int
 
 
 default_settings: SettingsFile = {
@@ -37,6 +39,8 @@ default_settings: SettingsFile = {
     "enable_badges_emotes": False,
     "available_drops_check": False,
     "priority_mode": PriorityMode.PRIORITY_ONLY,
+    "auth_token": "",
+    "api_port": 23432,
 }
 
 
@@ -61,6 +65,8 @@ class Settings:
     enable_badges_emotes: bool
     available_drops_check: bool
     priority_mode: PriorityMode
+    auth_token: str
+    api_port: int
 
     PASSTHROUGH = ("_settings", "_args", "_altered")
 

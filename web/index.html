@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Twitch Drops Miner Enhanced</title>
+  <style>
+    :root {
+      --bg: #090a0f;
+      --surface: #12151e;
+      --surface-border: #1e2433;
+      --card: #181d2a;
+      --card-hover: #202738;
+      --accent: #9146ff;
+      --accent-hover: #772ce8;
+      --accent-gradient: linear-gradient(135deg, #9146ff 0%, #6441a5 100%);
+      --text: #f0f3fa;
+      --text-muted: #8c97b0;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+      --radius: 14px;
+      --radius-sm: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Top Navigation Bar */
+    header {
+      background: rgba(18, 21, 30, 0.85);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--surface-border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 28px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 1.15rem;
+      letter-spacing: -0.3px;
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      background: var(--accent-gradient);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 4px 12px rgba(145, 70, 255, 0.35);
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      background: rgba(16, 185, 129, 0.12);
+      color: var(--success);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 10px currentColor;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.2s ease;
+      background: var(--card);
+      color: var(--text);
+    }
+
+    .btn:hover {
+      background: var(--card-hover);
+      transform: translateY(-1px);
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      box-shadow: 0 4px 14px rgba(145, 70, 255, 0.4);
+    }
+
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .btn-danger:hover {
+      background: rgba(239, 68, 68, 0.25);
+    }
+
+    /* Main Container & Tabs */
+    .container {
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 24px 20px;
+      flex: 1;
+    }
+
+    .nav-tabs {
+      display: flex;
+      gap: 8px;
+      background: var(--surface);
+      padding: 6px;
+      border-radius: var(--radius);
+      border: 1px solid var(--surface-border);
+      margin-bottom: 24px;
+      overflow-x: auto;
+    }
+
+    .tab-btn {
+      padding: 10px 20px;
+      border-radius: var(--radius-sm);
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+
+    .tab-btn:hover {
+      color: var(--text);
+    }
+
+    .tab-btn.active {
+      background: var(--card);
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    }
+
+    /* Hero Card: Now Mining */
+    .hero-card {
+      background: linear-gradient(145deg, #181d2a 0%, #151924 100%);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin-bottom: 24px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    }
+
+    .hero-card::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      right: -20%;
+      width: 300px;
+      height: 300px;
+      background: radial-gradient(circle, rgba(145, 70, 255, 0.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+
+    .hero-tag {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .hero-body {
+      display: grid;
+      grid-template-columns: 80px 1fr auto;
+      gap: 20px;
+      align-items: center;
+    }
+
+    .drop-thumb {
+      width: 80px;
+      height: 80px;
+      border-radius: 12px;
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      overflow: hidden;
+    }
+
+    .drop-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .drop-info h2 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .drop-meta {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .drop-meta span {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .hero-stats {
+      text-align: right;
+    }
+
+    .progress-percent {
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .progress-time {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .progress-bar-container {
+      margin-top: 20px;
+      height: 10px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 9999px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #9146ff, #bf94ff);
+      border-radius: 9999px;
+      transition: width 0.4s ease;
+      box-shadow: 0 0 14px rgba(145, 70, 255, 0.6);
+    }
+
+    /* Grid Layout for Cards */
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .stat-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: rgba(145, 70, 255, 0.12);
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+
+    .stat-data .stat-val {
+      font-size: 1.4rem;
+      font-weight: 700;
+    }
+
+    .stat-data .stat-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    /* Table / Lists */
+    .section-card {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+
+    .section-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+
+    th {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--surface-border);
+      font-weight: 600;
+    }
+
+    td {
+      padding: 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      font-size: 0.9rem;
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .badge-online {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--success);
+    }
+
+    .badge-offline {
+      background: rgba(140, 151, 176, 0.15);
+      color: var(--text-muted);
+    }
+
+    .badge-watching {
+      background: rgba(145, 70, 255, 0.15);
+      color: var(--accent);
+    }
+
+    /* Live Console Logs */
+    .log-box {
+      background: #08090d;
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-sm);
+      height: 350px;
+      overflow-y: auto;
+      font-family: ui-monospace, Menlo, Monaco, monospace;
+      font-size: 0.8rem;
+      padding: 14px;
+      line-height: 1.6;
+    }
+
+    .log-entry {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 4px;
+    }
+
+    .log-time {
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .log-level {
+      font-weight: bold;
+      width: 55px;
+      flex-shrink: 0;
+    }
+
+    .level-INFO { color: #60a5fa; }
+    .level-WARNING { color: #f59e0b; }
+    .level-ERROR { color: #ef4444; }
+    .level-CALL { color: #c084fc; }
+
+    /* Form Fields */
+    .form-group {
+      margin-bottom: 18px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+
+    .form-input {
+      width: 100%;
+      background: var(--card);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border 0.2s;
+    }
+
+    .form-input:focus {
+      border-color: var(--accent);
+    }
+
+    .notice-box {
+      background: rgba(145, 70, 255, 0.08);
+      border: 1px solid rgba(145, 70, 255, 0.2);
+      border-radius: var(--radius-sm);
+      padding: 14px;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      margin-bottom: 18px;
+    }
+
+    /* Modal / Activation Banner */
+    .activation-banner {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(145, 70, 255, 0.15));
+      border: 1px solid var(--warning);
+      border-radius: var(--radius);
+      padding: 18px 24px;
+      margin-bottom: 24px;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .activation-banner.visible {
+      display: flex;
+    }
+
+    .code-chip {
+      font-family: monospace;
+      font-size: 1.3rem;
+      font-weight: bold;
+      background: var(--surface);
+      padding: 4px 12px;
+      border-radius: 8px;
+      color: var(--warning);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      margin: 0 8px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">⛏️</div>
+      <span>Twitch Drops Miner Enhanced</span>
+    </div>
+    <div class="header-actions">
+      <div class="status-pill" id="statusPill">
+        <span class="status-dot"></span>
+        <span id="statusText">Connecting...</span>
+      </div>
+      <button class="btn" id="btnPause" onclick="controlAction('pause')">⏸ Pause</button>
+      <button class="btn" id="btnResume" onclick="controlAction('resume')">▶ Resume</button>
+      <button class="btn" id="btnReload" onclick="controlAction('reload')">🔄 Reload</button>
+      <button class="btn btn-primary" onclick="claimDrops()">🎁 Claim All</button>
+    </div>
+  </header>
+
+  <!-- Activation Banner (if device code requested) -->
+  <div class="container" style="padding-bottom: 0;">
+    <div class="activation-banner" id="activationBanner">
+      <div>
+        <strong>Twitch Device Activation Required:</strong> Go to
+        <a id="activationLink" href="https://www.twitch.tv/activate" target="_blank" style="color: #60a5fa; font-weight: 600;">twitch.tv/activate</a>
+        and enter code: <span class="code-chip" id="activationCode">ABCD-EFGH</span>
+      </div>
+      <button class="btn btn-primary" onclick="openActivation()">Open Link</button>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="container">
+
+    <!-- Navigation Tabs -->
+    <div class="nav-tabs">
+      <button class="tab-btn active" onclick="switchTab('overview')">📊 Overview</button>
+      <button class="tab-btn" onclick="switchTab('campaigns')">🎁 Campaigns & Drops</button>
+      <button class="tab-btn" onclick="switchTab('channels')">📺 Channels</button>
+      <button class="tab-btn" onclick="switchTab('priorities')">🎮 Game Priorities</button>
+      <button class="tab-btn" onclick="switchTab('logs')">📜 Live Logs</button>
+      <button class="tab-btn" onclick="switchTab('auth')">🔑 Twitch Account & Auth</button>
+    </div>
+
+    <!-- TAB 1: OVERVIEW -->
+    <div id="tab-overview">
+      <!-- Hero Now Mining Card -->
+      <div class="hero-card">
+        <div class="hero-header">
+          <span class="hero-tag">Now Mining</span>
+          <span id="heroChannel" style="font-size: 0.85rem; color: var(--text-muted);">
+            Watching: <strong style="color: var(--text);">None</strong>
+          </span>
+        </div>
+        <div class="hero-body">
+          <div class="drop-thumb" id="heroThumb">🎁</div>
+          <div class="drop-info">
+            <h2 id="heroTitle">No Active Drop</h2>
+            <div class="drop-meta">
+              <span id="heroGame">🎮 Idle</span>
+              <span id="heroStreamer">📺 Waiting for channels...</span>
+            </div>
+          </div>
+          <div class="hero-stats">
+            <div class="progress-percent" id="heroPercent">0%</div>
+            <div class="progress-time" id="heroMinutes">0 / 0 min (0m left)</div>
+          </div>
+        </div>
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill" id="heroProgressBar"></div>
+        </div>
+      </div>
+
+      <!-- Quick Stats -->
+      <div class="grid-3">
+        <div class="stat-card">
+          <div class="stat-icon">🎮</div>
+          <div class="stat-data">
+            <div class="stat-val" id="statCampaigns">0</div>
+            <div class="stat-label">Active Campaigns</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📺</div>
+          <div class="stat-data">
+            <div class="stat-val" id="statChannels">0</div>
+            <div class="stat-label">Monitored Channels</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🎁</div>
+          <div class="stat-data">
+            <div class="stat-val" id="statWebsockets">0</div>
+            <div class="stat-label">Active WebSockets</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: CAMPAIGNS & INVENTORY -->
+    <div id="tab-campaigns" style="display: none;">
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title">Active Drops Campaigns</div>
+          <button class="btn" onclick="fetchInventory()">Refresh</button>
+        </div>
+        <div id="campaignsContainer">
+          <p style="color: var(--text-muted);">Loading campaigns...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: CHANNELS -->
+    <div id="tab-channels" style="display: none;">
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title">Tracked Channels</div>
+          <button class="btn" onclick="controlAction('switch')">⏩ Switch Channel</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Channel</th>
+              <th>Game</th>
+              <th>Viewers</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="channelsTableBody">
+            <tr><td colspan="5" style="color: var(--text-muted); text-align: center;">No channels discovered yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 4: PRIORITIES -->
+    <div id="tab-priorities" style="display: none;">
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title">Game Priorities</div>
+          <button class="btn btn-primary" onclick="savePriorities()">Save Priorities</button>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+          The miner will prioritize watching channels streaming these games in order from top to bottom.
+        </p>
+        <div class="form-group">
+          <label class="form-label">Priority Games (Comma separated or line separated):</label>
+          <textarea class="form-input" id="priorityText" rows="6" placeholder="Rust&#10;Valorant&#10;Escape from Tarkov"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Priority Mode:</label>
+          <select class="form-input" id="priorityModeSelect">
+            <option value="0">Priority Games Only (Default)</option>
+            <option value="1">Ending Soonest</option>
+            <option value="2">Low Availability First</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 5: LOGS -->
+    <div id="tab-logs" style="display: none;">
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title">Live Application Logs</div>
+          <button class="btn" onclick="clearLogsUI()">Clear Console</button>
+        </div>
+        <div class="log-box" id="logBox"></div>
+      </div>
+    </div>
+
+    <!-- TAB 6: AUTH & SETTINGS -->
+    <div id="tab-auth" style="display: none;">
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title">Twitch Authentication</div>
+        </div>
+        <div class="notice-box">
+          <strong>Tip for Seamless Login:</strong> You can enter your Twitch <code>auth-token</code> directly. To get it:
+          <ol style="margin-top: 6px; padding-left: 20px;">
+            <li>Log into <a href="https://www.twitch.tv" target="_blank" style="color: var(--accent);">twitch.tv</a> in your browser.</li>
+            <li>Press <strong>F12</strong> (or Cmd+Option+I on Mac) to open Developer Tools.</li>
+            <li>Go to <strong>Application</strong> (Chrome/Edge) or <strong>Storage</strong> (Firefox/Safari) &rarr; <strong>Cookies</strong> &rarr; <code>https://www.twitch.tv</code>.</li>
+            <li>Find the cookie named <strong>auth-token</strong> and copy its value.</li>
+          </ol>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Twitch Auth Token:</label>
+          <input type="password" class="form-input" id="tokenInput" placeholder="Paste your 30-character auth-token here...">
+        </div>
+        <button class="btn btn-primary" onclick="saveAuthToken()">Save Token & Log In</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    let ws = null;
+    let appState = {};
+
+    function initWebSocket() {
+      const loc = window.location;
+      const wsUrl = (loc.protocol === 'https:' ? 'wss://' : 'ws://') + loc.host + '/ws';
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        document.getElementById('statusText').innerText = 'Connected';
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          handleEvent(payload.event, payload.data);
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
+      ws.onclose = () => {
+        document.getElementById('statusText').innerText = 'Disconnected (Reconnecting...)';
+        setTimeout(initWebSocket, 2000);
+      };
+    }
+
+    function handleEvent(eventType, data) {
+      if (eventType === 'init') {
+        appState = data;
+        updateUI(data);
+      } else if (eventType === 'status') {
+        document.getElementById('statusText').innerText = data.status;
+      } else if (eventType === 'drop') {
+        updateHeroDrop(data);
+      } else if (eventType === 'watching') {
+        updateHeroWatching(data);
+      } else if (eventType === 'channels') {
+        updateChannelsTable(data);
+      } else if (eventType === 'inventory') {
+        renderCampaigns(data);
+      } else if (eventType === 'log') {
+        appendLog(data);
+      } else if (eventType === 'auth_code') {
+        showActivationBanner(data);
+      } else if (eventType === 'countdown') {
+        if (appState.active_drop) {
+          appState.active_drop.seconds = data.seconds;
+        }
+      }
+    }
+
+    function updateUI(state) {
+      document.getElementById('statusText').innerText = state.status_text || 'Ready';
+      if (state.active_drop) {
+        updateHeroDrop(state.active_drop);
+      }
+      if (state.active_channel) {
+        updateHeroWatching(state.active_channel);
+      }
+      if (state.channels) {
+        updateChannelsTable(state.channels);
+      }
+      if (state.inventory) {
+        renderCampaigns(state.inventory);
+      }
+      if (state.device_code) {
+        showActivationBanner(state.device_code);
+      }
+      document.getElementById('statChannels').innerText = (state.channels || []).length;
+      document.getElementById('statCampaigns').innerText = (state.inventory || []).length;
+      document.getElementById('statWebsockets').innerText = (state.websockets || []).length;
+    }
+
+    function updateHeroDrop(drop) {
+      if (!drop) {
+        document.getElementById('heroTitle').innerText = 'No Active Drop';
+        document.getElementById('heroGame').innerText = '🎮 Idle';
+        document.getElementById('heroPercent').innerText = '0%';
+        document.getElementById('heroMinutes').innerText = '0 / 0 min';
+        document.getElementById('heroProgressBar').style.width = '0%';
+        return;
+      }
+      document.getElementById('heroTitle').innerText = drop.name;
+      document.getElementById('heroGame').innerText = '🎮 ' + drop.game;
+      document.getElementById('heroPercent').innerText = drop.percentage + '%';
+      document.getElementById('heroMinutes').innerText = `${drop.current_minutes} / ${drop.required_minutes} min (${drop.remaining_minutes}m left)`;
+      document.getElementById('heroProgressBar').style.width = drop.percentage + '%';
+      if (drop.image_url) {
+        document.getElementById('heroThumb').innerHTML = `<img src="${drop.image_url}" alt="Reward">`;
+      }
+    }
+
+    function updateHeroWatching(channel) {
+      const heroChannel = document.getElementById('heroChannel');
+      const heroStreamer = document.getElementById('heroStreamer');
+      if (!channel) {
+        heroChannel.innerHTML = 'Watching: <strong style="color: var(--text);">None</strong>';
+        heroStreamer.innerText = '📺 Idle';
+      } else {
+        heroChannel.innerHTML = `Watching: <strong style="color: var(--accent);"><a href="${channel.url}" target="_blank" style="color: inherit; text-decoration: none;">${channel.name}</a></strong> (${channel.viewers.toLocaleString()} viewers)`;
+        heroStreamer.innerText = `📺 ${channel.name} • ${channel.viewers.toLocaleString()} live viewers`;
+      }
+    }
+
+    function updateChannelsTable(channels) {
+      const tbody = document.getElementById('channelsTableBody');
+      if (!channels || channels.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="color: var(--text-muted); text-align: center;">No channels available</td></tr>';
+        return;
+      }
+      tbody.innerHTML = channels.map(ch => `
+        <tr>
+          <td><span class="badge ${ch.online ? (ch.watching ? 'badge-watching' : 'badge-online') : 'badge-offline'}">${ch.watching ? 'Watching' : (ch.online ? 'Online' : 'Offline')}</span></td>
+          <td><strong>${ch.name}</strong></td>
+          <td>${ch.game || '-'}</td>
+          <td>${ch.viewers ? ch.viewers.toLocaleString() : 0}</td>
+          <td><a href="${ch.url || ('https://twitch.tv/' + ch.name)}" target="_blank" class="btn" style="padding: 4px 8px; font-size: 0.75rem;">Open</a></td>
+        </tr>
+      `).join('');
+      document.getElementById('statChannels').innerText = channels.length;
+    }
+
+    function renderCampaigns(campaigns) {
+      const container = document.getElementById('campaignsContainer');
+      if (!campaigns || campaigns.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-muted);">No active drop campaigns found.</p>';
+        return;
+      }
+      container.innerHTML = campaigns.map(c => `
+        <div style="background: var(--card); border: 1px solid var(--surface-border); border-radius: 10px; padding: 16px; margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div>
+              <h3 style="font-size: 1.05rem;">${c.name}</h3>
+              <span style="font-size: 0.8rem; color: var(--accent); font-weight: 600;">${c.game}</span>
+            </div>
+            <span class="badge ${c.linked ? 'badge-online' : 'badge-offline'}">${c.linked ? 'Account Linked' : 'Not Linked'}</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            ${(c.drops || []).map(d => `
+              <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem; background: rgba(0,0,0,0.2); padding: 8px 12px; border-radius: 6px;">
+                <span>${d.name} (${d.current_minutes}/${d.required_minutes}m)</span>
+                <div>
+                  ${d.is_claimed ? '<span class="badge badge-online">Claimed</span>' : (d.can_claim ? '<button class="btn btn-primary" style="padding: 2px 8px; font-size: 0.75rem;" onclick="claimDrops()">Claim</button>' : `<span style="color: var(--text-muted);">${d.percentage}%</span>`)}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('');
+      document.getElementById('statCampaigns').innerText = campaigns.length;
+    }
+
+    function appendLog(entry) {
+      const box = document.getElementById('logBox');
+      const div = document.createElement('div');
+      div.className = 'log-entry';
+      div.innerHTML = `
+        <span class="log-time">[${entry.time}]</span>
+        <span class="log-level level-${entry.level}">${entry.level}</span>
+        <span>${entry.message}</span>
+      `;
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function clearLogsUI() {
+      document.getElementById('logBox').innerHTML = '';
+    }
+
+    function showActivationBanner(data) {
+      const banner = document.getElementById('activationBanner');
+      if (data && data.code) {
+        document.getElementById('activationCode').innerText = data.code;
+        document.getElementById('activationLink').href = data.uri || 'https://www.twitch.tv/activate';
+        banner.classList.add('visible');
+      } else {
+        banner.classList.remove('visible');
+      }
+    }
+
+    function openActivation() {
+      const href = document.getElementById('activationLink').href;
+      window.open(href, '_blank');
+    }
+
+    function switchTab(tabName) {
+      const tabs = ['overview', 'campaigns', 'channels', 'priorities', 'logs', 'auth'];
+      tabs.forEach(t => {
+        const el = document.getElementById('tab-' + t);
+        if (el) el.style.display = (t === tabName) ? 'block' : 'none';
+      });
+      document.querySelectorAll('.tab-btn').forEach((btn, idx) => {
+        btn.classList.toggle('active', tabs[idx] === tabName);
+      });
+      if (tabName === 'priorities') fetchSettings();
+    }
+
+    async function controlAction(action) {
+      try {
+        await fetch('/api/control/' + action, { method: 'POST' });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function claimDrops() {
+      try {
+        const res = await fetch('/api/control/claim', { method: 'POST' });
+        const data = await res.json();
+        alert(`Claimed ${data.claimed} drops!`);
+      } catch (e) {
+        alert('Failed to claim drops');
+      }
+    }
+
+    async function fetchSettings() {
+      try {
+        const res = await fetch('/api/settings');
+        const data = await res.json();
+        document.getElementById('priorityText').value = (data.priority || []).join('\n');
+        document.getElementById('priorityModeSelect').value = data.priority_mode || 0;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function savePriorities() {
+      const text = document.getElementById('priorityText').value;
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+      const mode = parseInt(document.getElementById('priorityModeSelect').value, 10);
+      try {
+        await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ priority: lines, priority_mode: mode })
+        });
+        alert('Priority settings saved!');
+      } catch (e) {
+        alert('Failed to save settings');
+      }
+    }
+
+    async function saveAuthToken() {
+      const token = document.getElementById('tokenInput').value.trim();
+      if (!token) {
+        alert('Please enter an auth-token');
+        return;
+      }
+      try {
+        const res = await fetch('/api/auth/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
+        });
+        const data = await res.json();
+        alert(data.message || 'Token saved!');
+      } catch (e) {
+        alert('Failed to save token');
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      initWebSocket();
+      fetch('/api/logs').then(r => r.json()).then(logs => {
+        logs.forEach(appendLog);
+      }).catch(() => {});
+    });
+  </script>
+</body>
+</html>

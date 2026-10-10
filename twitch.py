@@ -16,7 +16,7 @@ import aiohttp
 from yarl import URL
 
 from translate import _
-from gui import GUIManager
+from state_hub import StateHub
 from channel import Channel
 from websocket import WebsocketPool
 from inventory import DropsCampaign
@@ -120,7 +120,7 @@ class _AuthState:
 
     async def _oauth_login(self) -> str:
         login_form: LoginForm = self._twitch.gui.login
-        client_info: ClientInfo = self._twitch._client_type
+        client_info: ClientInfo = ClientType.SMARTBOX
         headers = {
             "Accept": "application/json",
             "Accept-Encoding": "gzip",
@@ -132,11 +132,11 @@ class _AuthState:
             "Pragma": "no-cache",
             "Referer": str(client_info.CLIENT_URL),
             "User-Agent": client_info.USER_AGENT,
-            "X-Device-Id": self.device_id,
+            "X-Device-Id": getattr(self, "device_id", "default_device"),
         }
         payload = {
             "client_id": client_info.CLIENT_ID,
-            "scopes": "",  # no scopes needed
+            "scopes": "",
         }
         while True:
             try:
@@ -144,30 +144,25 @@ class _AuthState:
                 async with self._twitch.request(
                     "POST", "https://id.twitch.tv/oauth2/device", headers=headers, data=payload
                 ) as response:
-                    # {
-                    #     "device_code": "40 chars [A-Za-z0-9]",
-                    #     "expires_in": 1800,
-                    #     "interval": 5,
-                    #     "user_code": "8 chars [A-Z]",
-                    #     "verification_uri": "https://www.twitch.tv/activate?device-code=ABCDEFGH"
-                    # }
                     response_json: JsonType = await response.json()
+                    if response.status != 200 or "device_code" not in response_json:
+                        error_msg = response_json.get("message", "Device code flow unavailable")
+                        logger.error(f"Failed to obtain device code ({response.status}): {error_msg}")
+                        raise LoginException(f"OAuth device flow failed: {error_msg}")
                     device_code: str = response_json["device_code"]
                     user_code: str = response_json["user_code"]
-                    interval: int = response_json["interval"]
-                    verification_uri: URL = URL(response_json["verification_uri"])
-                    expires_at = now + timedelta(seconds=response_json["expires_in"])
+                    interval: int = response_json.get("interval", 5)
+                    verification_uri: URL = URL(response_json.get("verification_uri", "https://www.twitch.tv/activate"))
+                    expires_at = now + timedelta(seconds=response_json.get("expires_in", 1800))
 
-                # Print the code to the user, open them the activate page so they can type it in
                 await login_form.ask_enter_code(verification_uri, user_code)
 
                 payload = {
-                    "client_id": self._twitch._client_type.CLIENT_ID,
+                    "client_id": client_info.CLIENT_ID,
                     "device_code": device_code,
                     "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
                 }
                 while True:
-                    # sleep first, not like the user is gonna enter the code *that* fast
                     await asyncio.sleep(interval)
                     async with self._twitch.request(
                         "POST",
@@ -176,20 +171,13 @@ class _AuthState:
                         data=payload,
                         invalidate_after=expires_at,
                     ) as response:
-                        # 200 means success, 400 means the user haven't entered the code yet
                         if response.status != 200:
                             continue
                         response_json = await response.json()
-                        # {
-                        #     "access_token": "40 chars [A-Za-z0-9]",
-                        #     "refresh_token": "40 chars [A-Za-z0-9]",
-                        #     "scope": [...],
-                        #     "token_type": "bearer"
-                        # }
                         self.access_token = cast(str, response_json["access_token"])
+                        self._twitch._client_type = ClientType.SMARTBOX
                         return self.access_token
             except RequestInvalid:
-                # the device_code has expired, request a new code
                 continue
 
     async def _login(self) -> str:
@@ -388,8 +376,21 @@ class _AuthState:
                 for invalid_token_attempt in range(2):
                     cookie = jar.filter_cookies(client_info.CLIENT_URL)
                     if "auth-token" not in cookie:
-                        self.access_token = await self._oauth_login()
-                        cookie["auth-token"] = self.access_token
+                        if getattr(self._twitch.settings, "auth_token", None):
+                            logger.info("Using auth token from settings")
+                            self.access_token = self._twitch.settings.auth_token
+                            cookie["auth-token"] = self.access_token
+                            self._twitch._client_type = ClientType.WEB
+                            client_info = self._twitch._client_type
+                        elif os.environ.get("TWITCH_AUTH_TOKEN"):
+                            logger.info("Using auth token from environment")
+                            self.access_token = os.environ["TWITCH_AUTH_TOKEN"]
+                            cookie["auth-token"] = self.access_token
+                            self._twitch._client_type = ClientType.WEB
+                            client_info = self._twitch._client_type
+                        else:
+                            self.access_token = await self._oauth_login()
+                            cookie["auth-token"] = self.access_token
                     elif not hasattr(self, "access_token"):
                         logger.info("Restoring session from cookie")
                         self.access_token = cookie["auth-token"].value
@@ -404,19 +405,29 @@ class _AuthState:
                             logger.info("Restored session is invalid")
                             assert client_info.CLIENT_URL.host is not None
                             jar.clear_domain(client_info.CLIENT_URL.host)
+                            if hasattr(self, "access_token"):
+                                delattr(self, "access_token")
                             continue
                         elif response.status == 200:
                             validate_response = await response.json()
                             break
                 else:
                     raise RuntimeError("Login verification failure (step #2)")
-                # ensure the cookie's client ID matches the currently selected client
-                if validate_response["client_id"] == client_info.CLIENT_ID:
+                # ensure client matches WEB, SMARTBOX, or client_info
+                resp_client_id = validate_response.get("client_id")
+                if resp_client_id == ClientType.WEB.CLIENT_ID:
+                    self._twitch._client_type = ClientType.WEB
+                    client_info = self._twitch._client_type
                     break
-                # otherwise, we need to delete the entire cookie file and clear the jar
-                logger.info("Cookie client ID mismatch")
-                jar.clear()
-                COOKIES_PATH.unlink(missing_ok=True)
+                elif resp_client_id == ClientType.SMARTBOX.CLIENT_ID:
+                    self._twitch._client_type = ClientType.SMARTBOX
+                    client_info = self._twitch._client_type
+                    break
+                elif resp_client_id == client_info.CLIENT_ID:
+                    break
+                # otherwise adapt
+                logger.info(f"Cookie client ID ({resp_client_id}) differs, accepting...")
+                break
             else:
                 raise RuntimeError("Login verification failure (step #1)")
             self.user_id = int(validate_response["user_id"])
@@ -428,7 +439,6 @@ class _AuthState:
             jar.save(COOKIES_PATH)
         self._twitch.gui.help._invalidate_button.config(state="normal")
         self._logged_in.set()
-
 
 class Twitch:
     def __init__(self, settings: Settings):
@@ -445,11 +455,11 @@ class Twitch:
         # Do not modify the default, safe values.
         self._qgl_limiter = RateLimiter(capacity=5, window=1)
         # Client type, session and auth
-        self._client_type: ClientInfo = ClientType.ANDROID_APP
+        self._client_type: ClientInfo = ClientType.WEB
         self._session: aiohttp.ClientSession | None = None
         self._auth_state: _AuthState = _AuthState(self)
-        # GUI
-        self.gui = GUIManager(self)
+        # StateHub as the default decoupled GUI
+        self.gui = StateHub(self)
         # Storing and watching channels
         self.channels: OrderedDict[int, Channel] = OrderedDict()
         self.watching_channel: AwaitableValue[Channel] = AwaitableValue()
@@ -532,8 +542,9 @@ class Twitch:
 
     def change_state(self, state: State) -> None:
         if self._state is not State.EXIT:
-            # prevent state changing once we switch to exit state
             self._state = state
+            if hasattr(self.gui, "state_enum"):
+                self.gui.state_enum = state
         self._state_change.set()
 
     def state_change(self, state: State) -> abc.Callable[[], None]:
@@ -735,8 +746,8 @@ class Twitch:
                 self.gui.status.update(_("gui", "status", "gathering"))
                 # start with all current channels, clear the memory and GUI
                 new_channels: set[Channel] = set(channels.values())
-                channels.clear()
-                self.gui.channels.clear()
+                # Keep live channel mapping intact while network discovery runs
+                # to prevent PubSub race conditions
                 # gather and add ACL channels from campaigns
                 # NOTE: we consider only campaigns that can be progressed
                 # NOTE: we use another set so that we can set them online separately
@@ -773,12 +784,15 @@ class Twitch:
                 # ensure that we won't end up with more channels than we can handle
                 # NOTE: we trim from the end because that's where the non-priority,
                 # offline (or online but low viewers) channels end up
-                to_remove_channels = ordered_channels[MAX_CHANNELS:]
                 ordered_channels = ordered_channels[:MAX_CHANNELS]
+                desired_ids = {channel.id for channel in ordered_channels}
+                to_remove_channels = [
+                    channel
+                    for channel_id, channel in channels.items()
+                    if channel_id not in desired_ids
+                ]
                 if to_remove_channels:
-                    # tracked channels and gui were cleared earlier, so no need to do it here
-                    # just make sure to unsubscribe from their topics
-                    to_remove_topics = []
+                    to_remove_topics: list[str] = []
                     for channel in to_remove_channels:
                         to_remove_topics.append(
                             WebsocketTopic.as_str("Channel", "StreamState", channel.id)
@@ -787,11 +801,15 @@ class Twitch:
                             WebsocketTopic.as_str("Channel", "StreamUpdate", channel.id)
                         )
                     self.websocket.remove_topics(to_remove_topics)
-                    del to_remove_channels, to_remove_topics
-                # set our new channel list
+                    for channel in to_remove_channels:
+                        del channels[channel.id]
+                        channel.remove()
+                    del to_remove_topics
+                self.gui.channels.clear()
                 for channel in ordered_channels:
                     channels[channel.id] = channel
                     channel.display(add=True)
+                del desired_ids, to_remove_channels
                 # subscribe to these channel's state updates
                 to_add_topics: list[WebsocketTopic] = []
                 for channel_id in channels:
@@ -1053,7 +1071,7 @@ class Twitch:
         msg_type = message["type"]
         channel = self.channels.get(channel_id)
         if channel is None:
-            logger.error(f"Stream state change for a non-existing channel: {channel_id}")
+            logger.debug(f"Stream state change for unmonitored channel: {channel_id}")
             return
         if msg_type == "viewcount":
             if not channel.online:
@@ -1089,7 +1107,7 @@ class Twitch:
         # }
         channel = self.channels.get(channel_id)
         if channel is None:
-            logger.error(f"Broadcast settings update for a non-existing channel: {channel_id}")
+            logger.debug(f"Broadcast settings update for unmonitored channel: {channel_id}")
             return
         if message["old_game"] != message["game"]:
             game_change = f", game changed: {message['old_game']} -> {message['game']}"
@@ -1570,7 +1588,7 @@ class Twitch:
             )
         except GQLException as exc:
             raise MinerException(f"Game: {game.slug}") from exc
-        if "game" in response["data"]:
+        if "game" in response["data"] and response["data"]["game"] is not None:
             return [
                 Channel.from_directory(
                     self, stream_channel_data["node"], drops_enabled=drops_enabled

@@ -11,6 +11,7 @@ __pycache__
 # Dev files
 *.new
 /env
+/venv
 /cache
 /*.jar
 log.txt
@@ -26,3 +27,4 @@ settings.json
 /*.AppImage.zsync
 .DS_Store
 *.app
+mac/TwitchDropsMinerMenu
