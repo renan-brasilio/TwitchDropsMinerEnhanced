@@ -1,0 +1,21 @@
+name: Rename release titles
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rename:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Use version-only release titles
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release edit v1.0.0 --title v1.0.0
+          gh release edit v1.0.1 --title v1.0.1
+          gh release edit v1.1.0 --title v1.1.0
+          gh release list --limit 100 --json tagName,name
