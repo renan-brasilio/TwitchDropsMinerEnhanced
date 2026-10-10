@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and Release macOS
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt Pillow truststore
+
+      - name: Ensure executable permissions
+        run: chmod +x build_mac.sh
+
+      - name: Build macOS App, DMG, and ZIP
+        run: ./build_mac.sh
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Twitch Drops Miner Enhanced ${{ github.ref_name }}"
+          body_path: docs/RELEASE_NOTES_v1.0.0.md
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+          files: |
+            TwitchDropsMinerEnhanced-macOS-arm64.dmg
+            TwitchDropsMinerEnhanced-macOS-arm64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
