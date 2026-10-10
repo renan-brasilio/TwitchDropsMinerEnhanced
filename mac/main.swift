@@ -228,7 +228,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.title = "⛏️ Drops"
+            if let iconPath = Bundle.main.path(forResource: "MenuBarIcon", ofType: "png"),
+               let iconImg = NSImage(contentsOfFile: iconPath) {
+                iconImg.isTemplate = true
+                button.image = iconImg
+                button.imagePosition = .imageOnly
+            } else if let iconImg = NSImage(contentsOfFile: "/Users/renanrocha/tmp/TwitchDropsMinerEnhanced/icons/MenuBarIcon.png") {
+                iconImg.isTemplate = true
+                button.image = iconImg
+                button.imagePosition = .imageOnly
+            } else {
+                button.title = "⛏️"
+            }
             button.toolTip = "Twitch Drops Miner Enhanced"
         }
         buildMenu()
@@ -342,14 +353,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
 
     func updateUI() {
         if let button = statusItem.button {
+            button.title = ""
             if let game = activeGame, activeDropPercent > 0 {
-                button.title = "⛏️ \(Int(activeDropPercent))% \(game)"
-            } else if minerState == "IDLE" {
-                button.title = "⛏️ Idle"
-            } else if minerState == "OFFLINE" {
-                button.title = "⛏️ Offline"
+                button.toolTip = "Twitch Drops Miner Enhanced — \(Int(activeDropPercent))% \(game)"
             } else {
-                button.title = "⛏️ Drops"
+                button.toolTip = "Twitch Drops Miner Enhanced — \(statusText)"
             }
         }
         buildMenu()

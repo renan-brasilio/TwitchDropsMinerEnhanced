@@ -17,10 +17,15 @@ echo "==> Compiling Swift menu bar binary..."
 swiftc -O "$DIR/mac/main.swift" -o "$MACOS_DIR/TwitchDropsMinerMenu"
 chmod +x "$MACOS_DIR/TwitchDropsMinerMenu"
 
-# 2. Copy AppIcon.icns
+# 2. Copy AppIcon.icns and MenuBarIcon.png
 if [ -f "$DIR/AppIcon.icns" ]; then
     echo "==> Copying AppIcon.icns to Resources..."
     cp "$DIR/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
+fi
+if [ -f "$DIR/icons/MenuBarIcon.png" ]; then
+    echo "==> Copying MenuBarIcon.png to Resources..."
+    cp "$DIR/icons/MenuBarIcon.png" "$RESOURCES_DIR/MenuBarIcon.png"
+    cp "$DIR/icons/MenuBarIcon@2x.png" "$RESOURCES_DIR/MenuBarIcon@2x.png"
 fi
 
 # 2. Generate Info.plist (LSUIElement=true for native menu bar extra)
