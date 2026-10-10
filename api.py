@@ -116,6 +116,7 @@ class APIServer:
             "priority": list(self._twitch.settings.priority),
             "priority_mode": self._twitch.settings.priority_mode.name,
             "has_auth_token": bool(getattr(self._twitch.settings, "auth_token", False)),
+            "auto_claim": self._twitch.settings.auto_claim,
         }
         return self._json_response(status_data)
 
@@ -192,6 +193,7 @@ class APIServer:
             "autostart_tray": s.autostart_tray,
             "available_drops_check": s.available_drops_check,
             "has_token": bool(getattr(s, "auth_token", False)),
+            "auto_claim": s.auto_claim,
         })
 
     async def _post_settings(self, request: web.Request) -> web.Response:
@@ -212,7 +214,8 @@ class APIServer:
                 pass
         if "tray_notifications" in data:
             s.tray_notifications = bool(data["tray_notifications"])
-
+        if "auto_claim" in data:
+            s.auto_claim = bool(data["auto_claim"])
         s.save(force=True)
         # Trigger reload of games
         self._twitch.change_state(State.GAMES_UPDATE)
@@ -307,6 +310,7 @@ class APIServer:
         init_data["settings"] = {
             "priority": list(self._twitch.settings.priority),
             "priority_mode": self._twitch.settings.priority_mode.name,
+            "auto_claim": self._twitch.settings.auto_claim,
         }
         await ws.send_json({"event": "init", "data": init_data})
 

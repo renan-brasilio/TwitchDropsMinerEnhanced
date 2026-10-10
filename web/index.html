@@ -752,10 +752,16 @@
       <div class="panel">
         <div class="panel-header">
           <div class="panel-title">Active Drops Campaigns</div>
-          <button class="btn" id="btnRefreshCampaigns" onclick="fetchInventory()">
-            <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
-            <span id="btnRefreshText">Refresh</span>
-          </button>
+          <div style="display: flex; gap: 12px; align-items: center;">
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); cursor: pointer; user-select: none;">
+              <input type="checkbox" id="autoClaimToggle" checked onchange="toggleAutoClaim(this.checked)" style="accent-color: var(--accent); cursor: pointer;">
+              Auto-claim drops
+            </label>
+            <button class="btn" id="btnRefreshCampaigns" onclick="fetchInventory()">
+              <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              <span id="btnRefreshText">Refresh</span>
+            </button>
+          </div>
         </div>
         <div id="campaignsList">
           <p style="color: var(--text-muted); font-size: 13px;">Loading inventory...</p>
@@ -968,6 +974,12 @@
       document.getElementById('statTopics').innerText = topicCount;
       document.getElementById('statAuth').innerText = state.is_logged_in ? 'Connected' : 'Not Connected';
       document.getElementById('statAuth').style.color = state.is_logged_in ? 'var(--status-active)' : 'var(--status-idle)';
+
+      // Sync auto-claim toggle
+      if (state.settings && typeof state.settings.auto_claim === 'boolean') {
+        const toggle = document.getElementById('autoClaimToggle');
+        if (toggle) toggle.checked = state.settings.auto_claim;
+      }
     }
 
     function updateStatusBadge(label, stateClass) {
@@ -1032,6 +1044,24 @@
       document.getElementById('statChannels').innerText = channels.length;
     }
 
+    function formatCampaignDate(isoStr) {
+      if (!isoStr) return '';
+      const d = new Date(isoStr);
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function campaignTimeRemaining(endsAt) {
+      if (!endsAt) return '';
+      const now = new Date();
+      const end = new Date(endsAt);
+      const diffMs = end - now;
+      if (diffMs <= 0) return 'Ended';
+      const days = Math.floor(diffMs / 86400000);
+      const hours = Math.floor((diffMs % 86400000) / 3600000);
+      if (days > 0) return `${days}d ${hours}h remaining`;
+      return `${hours}h remaining`;
+    }
+
     function renderInventory(campaigns) {
       const container = document.getElementById('campaignsList');
       if (!campaigns || campaigns.length === 0) {
@@ -1046,6 +1076,10 @@
               <div>
                 <div class="campaign-game-tag">${c.game}</div>
                 <strong style="font-size: 14px; display: block; margin-top: 2px;">${c.name}</strong>
+                <div style="font-size: 11px; color: var(--text-subtle); margin-top: 2px;">
+                  ${formatCampaignDate(c.starts_at)} – ${formatCampaignDate(c.ends_at)}
+                  ${c.ends_at ? ` · <span style="color: ${new Date(c.ends_at) > new Date() ? 'var(--status-active)' : 'var(--status-error)'};">${campaignTimeRemaining(c.ends_at)}</span>` : ''}
+                </div>
               </div>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
@@ -1171,6 +1205,25 @@
         showToast(data.message || `Claimed ${data.claimed} drops`, data.claimed > 0 ? 'success' : 'info');
       } catch (err) {
         showToast('Error claiming drops: ' + err.message, 'error');
+      }
+    }
+
+    async function toggleAutoClaim(enabled) {
+      const toggle = document.getElementById('autoClaimToggle');
+      toggle.disabled = true;
+      try {
+        const response = await apiFetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ auto_claim: enabled })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        showToast(enabled ? 'Auto-claim enabled' : 'Auto-claim disabled', 'success');
+      } catch (err) {
+        toggle.checked = !enabled;
+        showToast('Failed to update auto-claim: ' + err.message, 'error');
+      } finally {
+        toggle.disabled = false;
       }
     }
 

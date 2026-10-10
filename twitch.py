@@ -678,12 +678,13 @@ class Twitch:
                 self.save()
                 self.change_state(State.GAMES_UPDATE)
             elif self._state is State.GAMES_UPDATE:
-                # claim drops from expired and active campaigns
-                for campaign in self.inventory:
-                    if not campaign.upcoming:
-                        for drop in campaign.drops:
-                            if drop.can_claim:
-                                await drop.claim()
+                # claim drops from expired and active campaigns (if auto-claim enabled)
+                if self.settings.auto_claim:
+                    for campaign in self.inventory:
+                        if not campaign.upcoming:
+                            for drop in campaign.drops:
+                                if drop.can_claim:
+                                    await drop.claim()
                 # figure out which games we want
                 self.wanted_games.clear()
                 exclude = self.settings.exclude
@@ -1212,29 +1213,33 @@ class Twitch:
                 return
             drop.update_claim(message["data"]["drop_instance_id"])
             campaign = drop.campaign
-            await drop.claim()
-            drop.display()
-            # About 4-20s after claiming the drop, next drop can be started
-            # by re-sending the watch payload. We can test for it by fetching the current drop
-            # via GQL, and then comparing drop IDs.
-            await asyncio.sleep(4)
-            if watching_channel is not None:
-                for attempt in range(8):
-                    context = await self.gql_request(
-                        GQL_QUERIES["CurrentDrop"].with_variables(
-                            {"channelID": str(watching_channel.id)}
+            if self.settings.auto_claim:
+                await drop.claim()
+                drop.display()
+                # About 4-20s after claiming the drop, next drop can be started
+                # by re-sending the watch payload. We can test for it by fetching the current drop
+                # via GQL, and then comparing drop IDs.
+                await asyncio.sleep(4)
+                if watching_channel is not None:
+                    for attempt in range(8):
+                        context = await self.gql_request(
+                            GQL_QUERIES["CurrentDrop"].with_variables(
+                                {"channelID": str(watching_channel.id)}
+                            )
                         )
-                    )
-                    drop_data: JsonType | None = (
-                        context["data"]["currentUser"]["dropCurrentSession"]
-                    )
-                    if drop_data is None or drop_data["dropID"] != drop.id:
-                        break
-                    await asyncio.sleep(2)
-            if campaign.can_earn(watching_channel):
-                self.restart_watching()
+                        drop_data: JsonType | None = (
+                            context["data"]["currentUser"]["dropCurrentSession"]
+                        )
+                        if drop_data is None or drop_data["dropID"] != drop.id:
+                            break
+                        await asyncio.sleep(2)
+                if campaign.can_earn(watching_channel):
+                    self.restart_watching()
+                else:
+                    self.change_state(State.INVENTORY_FETCH)
             else:
-                self.change_state(State.INVENTORY_FETCH)
+                logger.info(f"Drop ready to claim: {drop.name} (auto-claim disabled)")
+                drop.display()
             return
         assert msg_type == "drop-progress"
         if drop is not None:

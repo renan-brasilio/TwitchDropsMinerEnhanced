@@ -446,6 +446,8 @@ class StateHub:
             "linked": campaign.linked,
             "upcoming": campaign.upcoming,
             "active": campaign.active,
+            "starts_at": campaign.starts_at.isoformat() if hasattr(campaign, "starts_at") else "",
+            "ends_at": campaign.ends_at.isoformat() if hasattr(campaign, "ends_at") else "",
             "drops": drops_list,
         }
         self.broadcast_event("inventory", list(self.campaigns_map.values()))

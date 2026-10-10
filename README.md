@@ -27,7 +27,8 @@
 - **🍎 Full Native macOS Desktop Window + Menu Bar Status Extra**:
   - **Desktop Window (`WKWebView`)**: Responsive dark-mode console displaying your live campaign progress, game box art covers, item reward icons, and 20 monitored streams.
   - **Menu Bar Extra (`NSStatusItem`)**: Custom Twitch + pickaxe template icon in your macOS menu bar displaying real-time progress (`[████████░░] 85%`), active streamer, viewer counts, and quick actions upon clicking.
-  - **Window Lifecycle**: Closing the window hides it while background mining continues smoothly in the menu bar. Re-opening via Dock icon or `Cmd+Tab` restores the window instantly.
+  - **Close to Menu Bar**: Hides the window and removes the Dock icon while mining and menu bar status remain active. Use **Open Dashboard Window** in the status menu to restore the window and Dock icon.
+  - **Window Close Preference**: **Keep Running in Menu Bar When Window Closes** is enabled by default, available in both the app and status menus, and saved across restarts. It applies to the red close button and `Cmd+W`; disable it to quit when closing the window. **Quit** (`Cmd+Q`) always exits the app.
 - **⚡ Zero-Lag Decoupled Architecture**:
   - Replaced the blocking 50–100Hz Tkinter polling loop with an async, event-driven `StateHub` that consumes 0.0% idle CPU.
 - **🔐 Modern Authentication & Captcha-Free Login**:
@@ -39,6 +40,10 @@
   - Quick-add chips with active campaign counters (e.g. `+ Overwatch (2)`).
   - Visual ranked priority cards with rank badges, Move Up (`▲`), Move Down (`▼`), and Delete (`✕`) controls.
   - One-click `+ Prioritize` button directly on every campaign card.
+- **Campaign schedule and reward claiming**:
+  - Each campaign shows its start and end dates in your local timezone, plus time remaining.
+  - Toggle **Auto-claim drops** in **Campaigns & Rewards**. Enabled by default to preserve existing behavior; saved across backend restarts.
+  - When disabled, rewards remain available for manual claiming using **Claim**. Dependent rewards may require the previous reward to be claimed before progressing.
 - **🐳 Docker & Remote VPS Support**:
   - Headless daemon container ready for deployment on any VPS (via Docker Compose or Dokploy).
   - **Client-Server Switcher**: Toggle between **Local Daemon** (`http://127.0.0.1:23432`) and **Remote VPS** in Connection Settings (`Cmd+,`).
@@ -109,4 +114,4 @@ open TwitchDropsMinerEnhanced.app
 
 Every several seconds, the application simulates watching an authorized stream by fetching stream metadata and playlist chunk headers. This advances Twitch drop progress without downloading video or audio data, saving bandwidth and system resources.
 
-To maintain channel state (Online / Offline / Viewers), an asynchronous sharded WebSocket pool connects to Twitch PubSub Edge (`wss://pubsub-edge.twitch.tv/v1`), receiving real-time events for stream status changes, viewer counts, and drop progress completions. When a drop reaches 100%, the miner claims the reward automatically.
+To maintain channel state (Online / Offline / Viewers), an asynchronous sharded WebSocket pool connects to Twitch PubSub Edge (`wss://pubsub-edge.twitch.tv/v1`), receiving real-time events for stream status changes, viewer counts, and drop progress completions. When a reward becomes claimable, the miner claims it if **Auto-claim drops** is enabled; otherwise it waits for manual claiming.

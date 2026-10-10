@@ -3,9 +3,16 @@ import WebKit
 import Foundation
 
 class WindowDelegate: NSObject, NSWindowDelegate {
+    weak var appDelegate: AppDelegate?
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        sender.orderOut(nil)
-        return false // Hide instead of closing so menu bar stays active
+        guard let appDelegate else { return true }
+        if appDelegate.keepRunningOnClose {
+            appDelegate.closeToMenuBar()
+        } else {
+            appDelegate.quitApp()
+        }
+        return false
     }
 }
 enum MenuBarStyle: String, CaseIterable {
@@ -58,6 +65,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
             return MenuBarStyle(rawValue: raw) ?? .iconOnly
         }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: "menuBarStyle") }
+    }
+
+    var keepRunningOnClose: Bool {
+        get { UserDefaults.standard.object(forKey: "keepRunningOnClose") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "keepRunningOnClose") }
     }
 
     var effectiveURL: URL {
@@ -143,6 +155,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         mainWindow.titlebarAppearsTransparent = false
         mainWindow.isReleasedWhenClosed = false
         mainWindow.minSize = NSSize(width: 820, height: 600)
+        windowDelegate.appDelegate = self
         mainWindow.delegate = windowDelegate
 
         // WebKit Configuration
@@ -205,6 +218,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     }
 
     func showMainWindow() {
+        NSApp.setActivationPolicy(.regular)
         mainWindow.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -219,7 +233,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(NSMenuItem(title: "Connection Settings...", action: #selector(showConnectionSettings), keyEquivalent: ","))
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(NSMenuItem(title: "Hide Window", action: #selector(hideMainWindow), keyEquivalent: "w"))
+        appMenu.addItem(NSMenuItem(title: "Close Window", action: #selector(closeMainWindow), keyEquivalent: "w"))
+        appMenu.addItem(NSMenuItem(title: "Close to Menu Bar", action: #selector(closeToMenuBar), keyEquivalent: ""))
+        appMenu.addItem(makeCloseBehaviorItem())
         appMenu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
@@ -235,8 +251,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         NSApp.mainMenu = mainMenu
     }
 
-    @objc func hideMainWindow() {
+    @objc func closeMainWindow() {
+        mainWindow.performClose(nil)
+    }
+
+    @objc func closeToMenuBar() {
         mainWindow.orderOut(nil)
+        NSApp.setActivationPolicy(.accessory)
+    }
+
+    func makeCloseBehaviorItem() -> NSMenuItem {
+        let item = NSMenuItem(
+            title: "Keep Running in Menu Bar When Window Closes",
+            action: #selector(toggleKeepRunningOnClose),
+            keyEquivalent: ""
+        )
+        item.target = self
+        item.state = keepRunningOnClose ? .on : .off
+        return item
+    }
+
+    @objc func toggleKeepRunningOnClose() {
+        keepRunningOnClose.toggle()
+        setupMainMenu()
+        buildMenu()
     }
 
     @objc func showMainWindowAction() {
@@ -279,6 +317,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
             attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]
         )
         menu.addItem(showItem)
+        menu.addItem(NSMenuItem(title: "Close to Menu Bar", action: #selector(closeToMenuBar), keyEquivalent: ""))
 
         menu.addItem(NSMenuItem.separator())
 
@@ -359,6 +398,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         menu.addItem(NSMenuItem.separator())
         // 6. Settings & Config
         menu.addItem(NSMenuItem(title: "Connection Settings...", action: #selector(showConnectionSettings), keyEquivalent: ","))
+        menu.addItem(makeCloseBehaviorItem())
 
         // 6b. Menu Bar Display Submenu
         let displaySubmenu = NSMenu(title: "Menu Bar Display")

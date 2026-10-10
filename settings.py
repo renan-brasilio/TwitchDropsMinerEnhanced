@@ -25,6 +25,7 @@ class SettingsFile(TypedDict):
     priority_mode: PriorityMode
     auth_token: str
     api_port: int
+    auto_claim: bool
 
 
 default_settings: SettingsFile = {
@@ -41,6 +42,7 @@ default_settings: SettingsFile = {
     "priority_mode": PriorityMode.PRIORITY_ONLY,
     "auth_token": "",
     "api_port": 23432,
+    "auto_claim": True,
 }
 
 
@@ -67,6 +69,7 @@ class Settings:
     priority_mode: PriorityMode
     auth_token: str
     api_port: int
+    auto_claim: bool
 
     PASSTHROUGH = ("_settings", "_args", "_altered")
 
