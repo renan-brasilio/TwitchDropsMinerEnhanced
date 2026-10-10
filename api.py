@@ -160,14 +160,23 @@ class APIServer:
             if g_name:
                 games_dict[g_name] = {"name": g_name, "id": g.get("id"), "discovered": True}
 
+        campaign_counts: dict[str, int] = {}
         for camp in self._hub.campaigns_map.values():
             c_game = camp.get("game")
             if c_game:
                 games_dict[c_game] = {"name": c_game, "discovered": True}
+                campaign_counts[c_game] = campaign_counts.get(c_game, 0) + 1
 
-        sorted_games = sorted(list(games_dict.values()), key=lambda x: (not x.get("discovered", False), x["name"]))
+        for g in games_dict.values():
+            g["campaigns_count"] = campaign_counts.get(g["name"], 0)
+
+        sorted_games = sorted(
+            list(games_dict.values()),
+            key=lambda x: (-x.get("campaigns_count", 0), not x.get("discovered", False), x["name"])
+        )
         return self._json_response({
             "available": sorted_games,
+            "campaign_counts": campaign_counts,
             "priority": list(self._twitch.settings.priority),
             "exclude": list(self._twitch.settings.exclude),
         })
