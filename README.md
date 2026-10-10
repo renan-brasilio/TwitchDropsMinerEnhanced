@@ -1,6 +1,26 @@
 # Twitch Drops Miner Enhanced ⛏️
 
-**Twitch Drops Miner Enhanced** is a high-performance refactor of DevilXD's TwitchDropsMiner, redesigned specifically for a seamless experience on macOS and modern systems.
+> **Fork of [DevilXD/TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner)**  
+> We love the core idea of DevilXD's original Twitch Drops Miner, but we needed something that **actually works reliably on modern systems**. The original app suffered from severe Tkinter main-thread lag on macOS, a dated layout, broken Twitch device authentication (`KeyError: 'device_code'`), and outdated GraphQL query schemas.  
+>  
+> This project is a complete refactor featuring an event-driven headless engine, a native macOS menu bar status extra, a dark-mode stream console, and direct browser cookie login.
+>  
+> ⚠️ **Platform Availability:**  
+> • **macOS**: ✅ **Fully Functional & Optimized** (Native `.app` window + Menu Bar extra).  
+> • **Docker / VPS**: 🟡 **Functional Daemon (WIP client polish)** (Dockerfile & compose included for remote hosting).  
+> • **Windows & Linux**: 🚧 **Work in Progress (WIP)** (Headless and web console work; native tray packages in progress).
+
+---
+
+### 📸 Screenshots
+
+#### Native macOS Application Window
+![Twitch Drops Miner Enhanced - App Window](docs/images/app_window.png)
+
+#### macOS Menu Bar Status Extra
+![macOS Menu Bar Status Extra](docs/images/menubar_status.png)
+
+---
 
 ### ✨ Key Enhancements:
 
@@ -67,12 +87,11 @@
 - If you wish to keep the miner occupied with mining anything it can, beyond what you've selected via the Priority List, you can use the Priority Mode setting to specify the mining order for the rest of the games.
 - Make sure to link your Twitch account to game accounts on the [campaigns page](https://www.twitch.tv/drops/campaigns), to enable more games to be mined.
 
-### Pictures:
+### 📸 Interface Overview:
 
-![Main](https://user-images.githubusercontent.com/4180725/164298155-c0880ad7-6423-4419-8d73-f3c053730a1b.png)
-![Inventory](https://user-images.githubusercontent.com/4180725/164298315-81cae0d2-24a4-4822-a056-154fd763c284.png)
-![Settings](https://user-images.githubusercontent.com/4180725/164298391-b13ad40d-3881-436c-8d4c-34e2bbe33a78.png)
-
+The old Windows 98-style Tkinter interface has been completely replaced with:
+1. **Native macOS Desktop Window**: Rendered via WebKit with real-time drop cards, stream information, and reorderable game priorities.
+2. **macOS Menu Bar Extra**: Compact template icon with live progress percentage and a one-click dropdown menu for quick actions.
 ### Notes:
 
 > [!WARNING]  
