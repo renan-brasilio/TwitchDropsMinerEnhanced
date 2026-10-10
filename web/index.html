@@ -966,7 +966,7 @@
         topicCount += (wsItem.topics || 0);
       });
       document.getElementById('statTopics').innerText = topicCount;
-      document.getElementById('statAuth').innerText = state.is_logged_in ? `User ID ${state.user_id}` : 'Not Connected';
+      document.getElementById('statAuth').innerText = state.is_logged_in ? 'Connected' : 'Not Connected';
       document.getElementById('statAuth').style.color = state.is_logged_in ? 'var(--status-active)' : 'var(--status-idle)';
     }
 
