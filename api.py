@@ -287,10 +287,9 @@ class APIServer:
                 break
             except OSError:
                 continue
-
+        print(f"==> API Server & Web Dashboard running at http://{self._host}:{actual_port}/", flush=True)
         logger.info(f"API Server & Web Dashboard running at http://{self._host}:{actual_port}/")
         self._hub.add_log("INFO", f"Dashboard & Local API online: http://{self._host}:{actual_port}/")
-
     async def stop(self) -> None:
         for ws in list(self._ws_clients):
             try:

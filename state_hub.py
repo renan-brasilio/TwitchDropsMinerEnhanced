@@ -59,7 +59,12 @@ class LoginHub(_HubComponent):
         # Attempt to auto-open in browser if on macOS
         if sys.platform == "darwin":
             try:
-                subprocess.Popen(["open", str(verification_uri)])
+                subprocess.Popen(
+                    ["open", str(verification_uri)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                )
             except Exception:
                 pass
 
@@ -216,6 +221,18 @@ class StateHub:
     async def wait_until_closed(self) -> None:
         await self._closed.wait()
 
+    async def coro_unless_closed(self, coro: Any) -> Any:
+        if self._close_requested.is_set():
+            from exceptions import ExitRequest
+            raise ExitRequest()
+        tasks = [asyncio.ensure_future(coro), asyncio.ensure_future(self._close_requested.wait())]
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        if self._close_requested.is_set():
+            from exceptions import ExitRequest
+            raise ExitRequest()
+        return await next(iter(done))
     def grab_attention(self, sound: bool = False) -> None:
         pass
 

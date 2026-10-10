@@ -331,17 +331,39 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         }
 
         guard let script = scriptPath else { return }
-        let pythonExec = venvPython ?? (fileManager.fileExists(atPath: "/opt/homebrew/bin/python3.14") ? "/opt/homebrew/bin/python3.14" : "/usr/bin/python3")
+        let scriptDir = (script as NSString).deletingLastPathComponent
+        let venvCandidates = [
+            (scriptDir as NSString).appendingPathComponent("venv/bin/python"),
+            "/Users/renanrocha/tmp/TwitchDropsMinerEnhanced/venv/bin/python",
+            venvPython ?? ""
+        ]
+        var pythonExec = "/usr/bin/python3"
+        for p in venvCandidates {
+            if !p.isEmpty && fileManager.fileExists(atPath: p) {
+                pythonExec = p
+                break
+            }
+        }
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: pythonExec)
-        process.arguments = [script, "--no-browser"]
-        process.currentDirectoryURL = URL(fileURLWithPath: (script as NSString).deletingLastPathComponent)
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "exec \"\(pythonExec)\" \"\(script)\" --no-browser"]
+        process.currentDirectoryURL = URL(fileURLWithPath: scriptDir)
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if let str = String(data: data, encoding: .utf8), !str.isEmpty {
+                print("[Backend]: \(str.trimmingCharacters(in: .whitespacesAndNewlines))")
+            }
+        }
 
         do {
             try process.run()
             self.backendProcess = process
-            print("Spawned local backend PID \(process.processIdentifier)")
+            print("Spawned local backend using \(pythonExec) (PID \(process.processIdentifier))")
         } catch {
             print("Failed to spawn local backend: \(error)")
         }

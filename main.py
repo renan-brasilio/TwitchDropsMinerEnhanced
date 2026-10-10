@@ -234,7 +234,7 @@ if __name__ == "__main__":
         # use lock_file to check if we're not already running
         success, file = lock_file(LOCK_PATH)
         if not success:
-            # already running - exit
+            print("ERROR: Another instance of Twitch Drops Miner is already running (lock.file held).", file=sys.stderr)
             sys.exit(3)
 
         asyncio.run(main())
