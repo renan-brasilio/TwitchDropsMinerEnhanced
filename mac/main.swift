@@ -124,6 +124,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         // WebKit Configuration
         let config = WKWebViewConfiguration()
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        config.websiteDataStore = WKWebsiteDataStore.nonPersistent()
 
         webView = WKWebView(frame: mainWindow.contentView!.bounds, configuration: config)
         webView.autoresizingMask = [.width, .height]
@@ -450,6 +451,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         }
 
         var request = URLRequest(url: targetURL)
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         if !apiKey.isEmpty {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }

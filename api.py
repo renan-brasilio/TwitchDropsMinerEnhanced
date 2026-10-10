@@ -100,10 +100,14 @@ class APIServer:
     async def _options_handler(self, request: web.Request) -> web.Response:
         return web.Response(status=204, headers=self._cors_headers())
 
-    async def _serve_index(self, request: web.Request) -> web.FileResponse:
+    async def _serve_index(self, request: web.Request) -> web.StreamResponse:
         index_file = WEB_DIR / "index.html"
         if index_file.exists():
-            return web.FileResponse(index_file)
+            headers = self._cors_headers()
+            headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            headers["Pragma"] = "no-cache"
+            headers["Expires"] = "0"
+            return web.FileResponse(index_file, headers=headers)
         return web.Response(text="Web Dashboard assets loading...", content_type="text/plain")
 
     async def _get_status(self, request: web.Request) -> web.Response:
