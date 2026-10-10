@@ -9,7 +9,7 @@ class WindowDelegate: NSObject, NSWindowDelegate {
     }
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate, WKNavigationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate, WKNavigationDelegate, WKUIDelegate {
     var mainWindow: NSWindow!
     var webView: WKWebView!
     var statusItem: NSStatusItem!
@@ -126,7 +126,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         webView = WKWebView(frame: mainWindow.contentView!.bounds, configuration: config)
         webView.autoresizingMask = [.width, .height]
         webView.navigationDelegate = self
+        webView.uiDelegate = self
         mainWindow.contentView?.addSubview(webView)
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = "Twitch Drops Miner"
+        alert.informativeText = message
+        alert.alertStyle = .informational
+        alert.runModal()
+        completionHandler()
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

@@ -210,13 +210,35 @@ class APIServer:
 
     async def _control_claim(self, request: web.Request) -> web.Response:
         claimed_count = 0
+        claimed_names: list[str] = []
+        try:
+            await self._twitch.fetch_inventory()
+        except Exception as e:
+            logger.warning(f"Failed to refresh inventory before claim: {e}")
+
         for campaign in self._twitch.inventory:
             for drop in campaign.drops:
-                if drop.can_claim and not drop.is_claimed:
-                    success = await drop.claim()
-                    if success:
-                        claimed_count += 1
-        return self._json_response({"status": "success", "claimed": claimed_count})
+                if not drop.is_claimed:
+                    if getattr(drop, "claim_id", None) is None and drop.current_minutes >= drop.required_minutes:
+                        await drop.generate_claim()
+                    if drop.can_claim:
+                        success = await drop.claim()
+                        if success:
+                            claimed_count += 1
+                            claimed_names.append(drop.name)
+
+        if claimed_count > 0:
+            msg = f"Successfully claimed {claimed_count} drop(s): {', '.join(claimed_names)}"
+        else:
+            msg = "No drops currently ready to claim (in progress or already claimed)"
+
+        self._hub.add_log("INFO", f"Claim check complete: {msg}")
+        return self._json_response({
+            "status": "success",
+            "claimed": claimed_count,
+            "drops": claimed_names,
+            "message": msg,
+        })
 
     async def _ws_handler(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=15.0)

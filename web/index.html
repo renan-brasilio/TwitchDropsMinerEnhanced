@@ -820,6 +820,25 @@
     const urlParams = new URLSearchParams(window.location.search);
     const apiKey = urlParams.get('key') || '';
 
+    function showToast(message, type = 'info') {
+      let toast = document.getElementById('toastNotice');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'toastNotice';
+        toast.style.cssText = 'position: fixed; bottom: 24px; right: 24px; z-index: 1000; background: #1f1f23; border: 1px solid #2d2d35; border-radius: 6px; padding: 12px 18px; font-size: 13px; font-weight: 500; color: #efeff1; box-shadow: 0 8px 24px rgba(0,0,0,0.5); display: flex; align-items: center; gap: 10px; transition: opacity 0.2s ease, transform 0.2s ease; transform: translateY(8px); opacity: 0; pointer-events: none;';
+        document.body.appendChild(toast);
+      }
+      toast.innerText = message;
+      toast.style.borderColor = (type === 'success') ? '#22c55e' : ((type === 'error') ? '#ef4444' : '#2d2d35');
+      toast.style.opacity = '1';
+      toast.style.transform = 'translateY(0)';
+      clearTimeout(toast._timer);
+      toast._timer = setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(8px)';
+      }, 4000);
+    }
+
     function apiFetch(endpoint, options = {}) {
       const headers = options.headers || {};
       if (apiKey) {
@@ -1046,11 +1065,12 @@
 
     async function claimDrops() {
       try {
+        showToast('Checking ready drops...', 'info');
         const res = await apiFetch('/api/control/claim', { method: 'POST' });
         const data = await res.json();
-        alert(`Claimed ${data.claimed} drops`);
+        showToast(data.message || `Claimed ${data.claimed} drops`, data.claimed > 0 ? 'success' : 'info');
       } catch (err) {
-        alert('Failed to claim drops');
+        showToast('Error claiming drops: ' + err.message, 'error');
       }
     }
 
@@ -1075,16 +1095,16 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ priority: lines, priority_mode: mode })
         });
-        alert('Priorities saved');
+        showToast('Priority configuration saved', 'success');
       } catch (err) {
-        alert('Failed to save priorities');
+        showToast('Failed to save priorities', 'error');
       }
     }
 
     async function submitAuthToken() {
       const token = document.getElementById('authTokenInput').value.trim();
       if (!token) {
-        alert('Please enter an auth-token');
+        showToast('Please enter an auth-token', 'error');
         return;
       }
       try {
@@ -1094,9 +1114,9 @@
           body: JSON.stringify({ token })
         });
         const data = await res.json();
-        alert(data.message || 'Token saved');
+        showToast(data.message || 'Token saved', 'success');
       } catch (err) {
-        alert('Failed to save token');
+        showToast('Failed to save token', 'error');
       }
     }
 
