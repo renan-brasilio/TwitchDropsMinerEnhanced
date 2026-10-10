@@ -889,27 +889,36 @@
     }
 
     function initWebSocket() {
-      const loc = window.location;
-      const wsUrl = (loc.protocol === 'https:' ? 'wss://' : 'ws://') + loc.host + '/ws' + (apiKey ? '?key=' + encodeURIComponent(apiKey) : '');
-      ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        updateStatusBadge('Connected', 'active');
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          handleEvent(payload.event, payload.data);
-        } catch (err) {
-          console.error(err);
+      try {
+        const loc = window.location;
+        let host = loc.host;
+        if (!host || host === 'null' || host === '') {
+          host = '127.0.0.1:23432';
         }
-      };
+        const protocol = (loc.protocol === 'https:') ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${host}/ws${apiKey ? '?key=' + encodeURIComponent(apiKey) : ''}`;
+        ws = new WebSocket(wsUrl);
 
-      ws.onclose = () => {
-        updateStatusBadge('Reconnecting', 'idle');
-        setTimeout(initWebSocket, 2000);
-      };
+        ws.onopen = () => {
+          updateStatusBadge('Connected', 'active');
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            handleEvent(payload.event, payload.data);
+          } catch (err) {
+            console.error(err);
+          }
+        };
+
+        ws.onclose = () => {
+          updateStatusBadge('Reconnecting', 'idle');
+          setTimeout(initWebSocket, 2000);
+        };
+      } catch (err) {
+        console.error("WebSocket init error:", err);
+      }
     }
 
     function handleEvent(eventType, data) {
@@ -1402,19 +1411,35 @@
         showToast('Failed to save token', 'error');
       }
     }
-
-    async function fetchInventory() {
+    async function pollFullState() {
       try {
-        const res = await apiFetch('/api/inventory');
-        const data = await res.json();
-        renderInventory(data);
+        const [statusRes, channelsRes, invRes] = await Promise.allSettled([
+          apiFetch('/api/status'),
+          apiFetch('/api/channels'),
+          apiFetch('/api/inventory')
+        ]);
+        if (statusRes.status === 'fulfilled' && statusRes.value.ok) {
+          const statusData = await statusRes.value.json();
+          cachedState = statusData;
+          applyState(statusData);
+        }
+        if (channelsRes.status === 'fulfilled' && channelsRes.value.ok) {
+          const channelsData = await channelsRes.value.json();
+          renderChannels(channelsData);
+        }
+        if (invRes.status === 'fulfilled' && invRes.value.ok) {
+          const invData = await invRes.value.json();
+          renderInventory(invData);
+        }
       } catch (err) {
-        console.error(err);
+        console.error("Poll full state error:", err);
       }
     }
 
     window.addEventListener('DOMContentLoaded', () => {
+      pollFullState();
       initWebSocket();
+      setInterval(pollFullState, 2500);
       apiFetch('/api/logs').then(r => r.json()).then(logs => {
         logs.forEach(appendTerminalLog);
       }).catch(() => {});
