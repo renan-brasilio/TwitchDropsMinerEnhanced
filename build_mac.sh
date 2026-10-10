@@ -17,6 +17,12 @@ echo "==> Compiling Swift menu bar binary..."
 swiftc -O "$DIR/mac/main.swift" -o "$MACOS_DIR/TwitchDropsMinerMenu"
 chmod +x "$MACOS_DIR/TwitchDropsMinerMenu"
 
+# 2. Copy AppIcon.icns
+if [ -f "$DIR/AppIcon.icns" ]; then
+    echo "==> Copying AppIcon.icns to Resources..."
+    cp "$DIR/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
+fi
+
 # 2. Generate Info.plist (LSUIElement=true for native menu bar extra)
 echo "==> Generating Info.plist..."
 cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
@@ -38,6 +44,10 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <string>1.0.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key>

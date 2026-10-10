@@ -24,7 +24,8 @@ settings.json
 /appimage-builder
 /appimage-build
 /*.AppImage
-/*.AppImage.zsync
 .DS_Store
+*.app
+AppIcon.iconset/
 *.app
 mac/TwitchDropsMinerMenu

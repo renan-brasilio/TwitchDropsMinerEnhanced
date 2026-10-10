@@ -57,6 +57,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     var isLoggedIn: Bool = false
     var hasLoadedDashboard: Bool = false
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Set Dock Application Icon
+        if let iconPath = Bundle.main.path(forResource: "AppIcon", ofType: "icns"),
+           let iconImg = NSImage(contentsOfFile: iconPath) {
+            NSApp.applicationIconImage = iconImg
+        }
+
         // 1. Setup Menu Bar Item
         setupStatusItem()
 
