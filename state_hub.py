@@ -59,11 +59,11 @@ class LoginHub(_HubComponent):
         # Attempt to auto-open in browser if on macOS
         if sys.platform == "darwin":
             try:
-                subprocess.Popen(
+                subprocess.run(
                     ["open", str(verification_uri)],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    close_fds=True,
+                    check=False,
                 )
             except Exception:
                 pass

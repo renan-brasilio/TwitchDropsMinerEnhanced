@@ -55,7 +55,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     var activeChannel: String? = nil
     var activeViewers: Int = 0
     var isLoggedIn: Bool = false
-
+    var hasLoadedDashboard: Bool = false
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 1. Setup Menu Bar Item
         setupStatusItem()
@@ -121,6 +121,46 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         webView.autoresizingMask = [.width, .height]
         webView.navigationDelegate = self
         mainWindow.contentView?.addSubview(webView)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        hasLoadedDashboard = true
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        hasLoadedDashboard = false
+        showRetryHTML()
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        hasLoadedDashboard = false
+        showRetryHTML()
+    }
+
+    func showRetryHTML() {
+        let modeStr = isRemote ? "Remote Server (\(effectiveURL.absoluteString))" : "Local Daemon (\(effectiveURL.absoluteString))"
+        let errorHTML = """
+        <!DOCTYPE html><html><head><meta charset="utf-8">
+        <style>
+        body { background: #090a0f; color: #f0f3fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
+        .card { background: #12151e; border: 1px solid #1e2433; border-radius: 14px; padding: 36px 40px; max-width: 480px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .icon { font-size: 40px; margin-bottom: 16px; }
+        h2 { margin-bottom: 12px; font-size: 1.35rem; }
+        p { color: #8c97b0; font-size: 0.9rem; line-height: 1.6; margin-bottom: 22px; }
+        .btn { background: #9146ff; color: #fff; border: none; border-radius: 8px; padding: 10px 22px; font-weight: 600; font-size: 0.9rem; cursor: pointer; }
+        .btn:hover { background: #772ce8; }
+        code { background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px; color: #f59e0b; }
+        </style></head><body>
+        <div class="card">
+        <div class="icon">⛏️</div>
+        <h2>Connecting to Miner Backend...</h2>
+        <p>Connecting to <strong>\(modeStr)</strong>.<br>The daemon is initializing. This page will automatically refresh once the connection is established.</p>
+        <button class="btn" onclick="location.reload()">Retry Connection</button>
+        </div>
+        <script>setTimeout(function(){ location.reload(); }, 2000);</script>
+        </body></html>
+        """
+        webView.loadHTMLString(errorHTML, baseURL: effectiveURL)
     }
 
     func showMainWindow() {
@@ -493,6 +533,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
             }
             DispatchQueue.main.async {
                 self?.parseStateJSON(json)
+                if !(self?.hasLoadedDashboard ?? false) {
+                    self?.hasLoadedDashboard = true
+                    self?.reloadConnection()
+                }
             }
         }.resume()
     }

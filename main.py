@@ -213,7 +213,6 @@ if __name__ == "__main__":
                     loop.remove_signal_handler(sig)
             client.print(_("gui", "status", "exiting"))
             await client.shutdown()
-            await api_server.stop()
         if not client.gui.close_requested:
             # user didn't request the closure
             client.gui.tray.change_icon("error")
@@ -228,6 +227,7 @@ if __name__ == "__main__":
         client.save(force=True)
         client.gui.stop()
         client.gui.close_window()
+        await api_server.stop()
         sys.exit(exit_status)
 
     try:
