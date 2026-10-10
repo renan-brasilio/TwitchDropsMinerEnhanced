@@ -762,18 +762,46 @@
           <div class="panel-title">Game Priorities</div>
           <button class="btn btn-primary" onclick="savePriorities()">Save Configuration</button>
         </div>
+
+        <!-- Game Selection Dropdown & Custom Field -->
         <div class="form-group">
-          <label class="form-label">Priority Order (One game title per line):</label>
-          <textarea class="form-input" id="priorityInput" rows="6" placeholder="Overwatch&#10;Rust&#10;Valorant"></textarea>
-          <div class="form-help">When empty, the miner automatically progresses any available drop campaign. When populated, it prioritizes strictly from top to bottom.</div>
+          <label class="form-label">Select Game to Prioritize:</label>
+          <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+            <select class="form-input" id="gameSelectDropdown" style="flex: 1;" onchange="onGameDropdownChange()">
+              <option value="">-- Choose game from campaigns or catalog --</option>
+            </select>
+            <button class="btn btn-primary" onclick="addSelectedGame()">Add Game</button>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" class="form-input" id="customGameInput" placeholder="Or enter any custom game title..." style="flex: 1;">
+            <button class="btn" onclick="addCustomGame()">Add Custom</button>
+          </div>
         </div>
+
+        <!-- Quick-Add Popular Chips -->
         <div class="form-group">
+          <label class="form-label" style="font-size: 12px; color: var(--text-muted);">Quick-Add Games:</label>
+          <div id="quickAddChips" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+        </div>
+
+        <!-- Visual Reorderable Priority List -->
+        <div class="form-group" style="padding-top: 8px; border-top: 1px solid var(--border);">
+          <label class="form-label">Active Priority Order (Mined top to bottom):</label>
+          <div id="priorityRankedList" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px;"></div>
+          <div id="priorityEmptyNotice" style="color: var(--text-muted); font-size: 12px; padding: 12px; background: var(--surface-subtle); border-radius: var(--radius-sm); border: 1px dashed var(--border); display: none;">
+            No specific games prioritized. The miner will automatically progress any active drop campaign on your account.
+          </div>
+        </div>
+
+        <!-- Priority Mode -->
+        <div class="form-group" style="padding-top: 12px; border-top: 1px solid var(--border);">
           <label class="form-label">Priority Mode:</label>
-          <select class="form-input" id="priorityMode">
-            <option value="0">Priority Games Only</option>
+          <select class="form-input" id="priorityMode" onchange="savePriorities(false)">
+            <option value="0">Priority Games Only (Default)</option>
             <option value="1">Ending Soonest</option>
             <option value="2">Lowest Availability First</option>
           </select>
+          <div class="form-help">"Priority Games Only" mines strictly your prioritized titles. "Ending Soonest" mines prioritized titles first, then campaigns ending soonest.</div>
         </div>
       </div>
     </div>
@@ -993,8 +1021,10 @@
               <div class="campaign-game-tag">${c.game}</div>
               <strong style="font-size: 14px;">${c.name}</strong>
             </div>
-            <span class="pill ${c.linked ? 'pill-online' : 'pill-offline'}">${c.linked ? 'Linked' : 'Unlinked'}</span>
-          </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button class="btn" style="padding: 2px 8px; font-size: 11px;" onclick="addGameToPriority('${c.game}')">+ Prioritize</button>
+              <span class="pill ${c.linked ? 'pill-online' : 'pill-offline'}">${c.linked ? 'Linked' : 'Unlinked'}</span>
+            </div>
           <div>
             ${(c.drops || []).map(d => `
               <div class="drop-subrow">
@@ -1074,28 +1104,176 @@
       }
     }
 
+    let priorityList = [];
+
     async function loadPriorities() {
       try {
-        const res = await apiFetch('/api/settings');
-        const data = await res.json();
-        document.getElementById('priorityInput').value = (data.priority || []).join('\n');
-        document.getElementById('priorityMode').value = data.priority_mode || 0;
+        const [settingsRes, gamesRes] = await Promise.all([
+          apiFetch('/api/settings'),
+          apiFetch('/api/games')
+        ]);
+        const settingsData = await settingsRes.json();
+        const gamesData = await gamesRes.json();
+
+        priorityList = settingsData.priority || [];
+        document.getElementById('priorityMode').value = settingsData.priority_mode || 0;
+
+        // Populate Game Selection Dropdown
+        const dropdown = document.getElementById('gameSelectDropdown');
+        dropdown.innerHTML = '<option value="">-- Choose game from campaigns or catalog --</option>';
+        
+        const discoveredGroup = document.createElement('optgroup');
+        discoveredGroup.label = 'Active Campaigns on Your Account';
+        const popularGroup = document.createElement('optgroup');
+        popularGroup.label = 'Popular Twitch Drops Games';
+
+        (gamesData.available || []).forEach(g => {
+          const opt = document.createElement('option');
+          opt.value = g.name;
+          opt.textContent = g.name;
+          if (g.discovered) {
+            discoveredGroup.appendChild(opt);
+          } else {
+            popularGroup.appendChild(opt);
+          }
+        });
+
+        if (discoveredGroup.children.length > 0) dropdown.appendChild(discoveredGroup);
+        if (popularGroup.children.length > 0) dropdown.appendChild(popularGroup);
+
+        // Populate Quick-Add Chips
+        const chipsContainer = document.getElementById('quickAddChips');
+        chipsContainer.innerHTML = '';
+        const popularChips = ['Overwatch', 'Rust', 'Rainbow Six Siege', 'Valorant', 'Dead by Daylight', 'Escape from Tarkov', 'World of Warcraft', 'Apex Legends'];
+        popularChips.forEach(name => {
+          const btn = document.createElement('button');
+          btn.className = 'btn';
+          btn.style.cssText = 'padding: 3px 8px; font-size: 11px;';
+          btn.textContent = '+ ' + name;
+          btn.onclick = () => addGameToPriority(name);
+          chipsContainer.appendChild(btn);
+        });
+
+        renderPriorityList();
       } catch (err) {
         console.error(err);
       }
     }
 
-    async function savePriorities() {
-      const text = document.getElementById('priorityInput').value;
-      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    function renderPriorityList() {
+      const container = document.getElementById('priorityRankedList');
+      const emptyNotice = document.getElementById('priorityEmptyNotice');
+      container.innerHTML = '';
+
+      if (!priorityList || priorityList.length === 0) {
+        emptyNotice.style.display = 'block';
+        return;
+      }
+      emptyNotice.style.display = 'none';
+
+      priorityList.forEach((game, index) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; background: var(--surface-subtle); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 13px;';
+        
+        const left = document.createElement('div');
+        left.style.cssText = 'display: flex; align-items: center; gap: 10px;';
+        left.innerHTML = `<span class="pill pill-active mono">#${index + 1}</span><strong>${game}</strong>`;
+
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display: flex; gap: 4px;';
+
+        const upBtn = document.createElement('button');
+        upBtn.className = 'btn';
+        upBtn.style.cssText = 'padding: 2px 6px; font-size: 11px;';
+        upBtn.textContent = '▲';
+        upBtn.disabled = (index === 0);
+        upBtn.onclick = () => movePriority(index, -1);
+
+        const downBtn = document.createElement('button');
+        downBtn.className = 'btn';
+        downBtn.style.cssText = 'padding: 2px 6px; font-size: 11px;';
+        downBtn.textContent = '▼';
+        downBtn.disabled = (index === priorityList.length - 1);
+        downBtn.onclick = () => movePriority(index, 1);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn';
+        deleteBtn.style.cssText = 'padding: 2px 6px; font-size: 11px; color: var(--status-error);';
+        deleteBtn.textContent = '✕';
+        deleteBtn.onclick = () => removePriority(index);
+
+        actions.appendChild(upBtn);
+        actions.appendChild(downBtn);
+        actions.appendChild(deleteBtn);
+
+        row.appendChild(left);
+        row.appendChild(actions);
+        container.appendChild(row);
+      });
+    }
+
+    function onGameDropdownChange() {
+      const dropdown = document.getElementById('gameSelectDropdown');
+      if (dropdown.value) {
+        addGameToPriority(dropdown.value);
+        dropdown.value = '';
+      }
+    }
+
+    function addSelectedGame() {
+      const dropdown = document.getElementById('gameSelectDropdown');
+      if (dropdown.value) {
+        addGameToPriority(dropdown.value);
+        dropdown.value = '';
+      }
+    }
+
+    function addCustomGame() {
+      const input = document.getElementById('customGameInput');
+      const val = input.value.trim();
+      if (val) {
+        addGameToPriority(val);
+        input.value = '';
+      }
+    }
+
+    function addGameToPriority(gameName) {
+      if (!gameName) return;
+      if (priorityList.includes(gameName)) {
+        showToast(`${gameName} is already prioritized`, 'info');
+        return;
+      }
+      priorityList.push(gameName);
+      renderPriorityList();
+      savePriorities(false);
+      showToast(`Added ${gameName} to priorities`, 'success');
+    }
+
+    function movePriority(index, delta) {
+      const targetIndex = index + delta;
+      if (targetIndex < 0 || targetIndex >= priorityList.length) return;
+      const item = priorityList.splice(index, 1)[0];
+      priorityList.splice(targetIndex, 0, item);
+      renderPriorityList();
+      savePriorities(false);
+    }
+
+    function removePriority(index) {
+      const removed = priorityList.splice(index, 1)[0];
+      renderPriorityList();
+      savePriorities(false);
+      showToast(`Removed ${removed} from priorities`, 'info');
+    }
+
+    async function savePriorities(showNotice = true) {
       const mode = parseInt(document.getElementById('priorityMode').value, 10);
       try {
         await apiFetch('/api/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ priority: lines, priority_mode: mode })
+          body: JSON.stringify({ priority: priorityList, priority_mode: mode })
         });
-        showToast('Priority configuration saved', 'success');
+        if (showNotice) showToast('Priority configuration saved', 'success');
       } catch (err) {
         showToast('Failed to save priorities', 'error');
       }

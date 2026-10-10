@@ -121,8 +121,31 @@ class APIServer:
         return self._json_response(list(self._hub.campaigns_map.values()))
 
     async def _get_games(self, request: web.Request) -> web.Response:
+        popular = [
+            "Overwatch", "Rust", "Rainbow Six Siege", "Dead by Daylight",
+            "Valorant", "World of Warcraft", "Escape from Tarkov", "Apex Legends",
+            "Warframe", "Palworld", "Path of Exile", "Path of Exile 2",
+            "Hunt: Showdown", "Sea of Thieves", "Rocket League", "Counter-Strike 2",
+            "Cyberpunk 2077", "Destiny 2", "The Division 2", "Warhammer 40,000: Space Marine 2",
+            "Dune: Awakening", "Delta Force", "Marvel Rivals"
+        ]
+        games_dict: dict[str, dict[str, Any]] = {}
+        for p in popular:
+            games_dict[p] = {"name": p, "discovered": False}
+
+        for g in self._hub.available_games:
+            g_name = g.get("name")
+            if g_name:
+                games_dict[g_name] = {"name": g_name, "id": g.get("id"), "discovered": True}
+
+        for camp in self._hub.campaigns_map.values():
+            c_game = camp.get("game")
+            if c_game:
+                games_dict[c_game] = {"name": c_game, "discovered": True}
+
+        sorted_games = sorted(list(games_dict.values()), key=lambda x: (not x.get("discovered", False), x["name"]))
         return self._json_response({
-            "available": self._hub.available_games,
+            "available": sorted_games,
             "priority": list(self._twitch.settings.priority),
             "exclude": list(self._twitch.settings.exclude),
         })
