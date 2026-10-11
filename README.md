@@ -60,8 +60,8 @@
 ### 🚀 Installation (macOS Apple Silicon)
 
 1. **Download the latest release:**
-   - **`TwitchDropsMinerEnhanced-macOS-arm64.dmg`**: Drag-and-drop installer disk image.
-   - **`TwitchDropsMinerEnhanced-macOS-arm64.zip`**: Portable application archive.
+   - **`TwitchDropsMinerEnhanced-vX.Y.Z-macOS-arm64.dmg`**: Drag-and-drop installer disk image (for example `TwitchDropsMinerEnhanced-v1.4.1-macOS-arm64.dmg`).
+   - **`TwitchDropsMinerEnhanced-vX.Y.Z-macOS-arm64.zip`**: Portable application archive.
 2. **Install:**
    - Double-click the `.dmg` and drag **Twitch Drops Miner Enhanced** into your **Applications** folder.
 3. **Launch:**

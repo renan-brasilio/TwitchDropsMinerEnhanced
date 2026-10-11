@@ -60,7 +60,7 @@ jobs:
           prerelease: false
           generate_release_notes: false
           files: |
-            TwitchDropsMinerEnhanced-macOS-arm64.dmg
-            TwitchDropsMinerEnhanced-macOS-arm64.zip
+            TwitchDropsMinerEnhanced-${{ github.ref_name }}-macOS-arm64.dmg
+            TwitchDropsMinerEnhanced-${{ github.ref_name }}-macOS-arm64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
