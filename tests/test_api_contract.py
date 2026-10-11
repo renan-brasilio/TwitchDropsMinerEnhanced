@@ -576,6 +576,88 @@ class GamesEndpointTests(ApiContractTestCase):
         self.assertEqual(status["campaigns_count"], sum(games["campaign_counts"].values()))
 
 
+class GameCatalogEndpointTests(ApiContractTestCase):
+    """/api/games/catalog and /api/games/lookup: Twitch's full game list for the Games page."""
+
+    def fake_gql(self, responses):
+        sent = []
+
+        async def request(op):
+            sent.append(op)
+            key = next(k for k in ("GameSearch", "TopGames", "GameLookup") if k in op["query"])
+            return responses[key](op["variables"])
+        patcher = patch.object(self.twitch, "gql_request", side_effect=request)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return sent
+
+    @staticmethod
+    def node(name, display=None, viewers=10):
+        return {"id": "1", "name": name.lower(), "displayName": display or name,
+                "boxArtURL": f"https://cdn.example/{name}.jpg", "viewersCount": viewers}
+
+    async def test_search_returns_display_names_and_drop_counts_without_paging(self):
+        self.add_campaign("active", game="VALORANT", game_id="7")
+        sent = self.fake_gql({"GameSearch": lambda v: {"data": {"searchCategories": {"edges": [
+            {"node": self.node("valorant", "VALORANT", 5000)}, {"node": None},
+        ]}}}})
+        data = await self.get_json("/api/games/catalog?q=%20valo%20&first=5")
+        self.assertEqual(data, {"next": None, "games": [{
+            "id": "1", "name": "VALORANT", "box_art": "https://cdn.example/valorant.jpg",
+            "viewers": 5000, "campaigns_count": 1}]})
+        # The search text travels as a GQL variable, trimmed, never spliced into the query.
+        self.assertEqual(sent[0]["variables"], {"query": "valo", "first": 5})
+        self.assertNotIn("valo", sent[0]["query"])
+
+    async def test_browse_pages_with_the_last_cursor_until_twitch_says_done(self):
+        pages = {None: (["A", "B"], True), "c2": (["C"], False)}
+
+        def top(variables):
+            names, more = pages[variables["after"]]
+            return {"data": {"games": {
+                "edges": [{"cursor": f"c{i + 1}", "node": self.node(n)} for i, n in enumerate(names)],
+                "pageInfo": {"hasNextPage": more}}}}
+        self.fake_gql({"TopGames": top})
+        first = await self.get_json("/api/games/catalog?first=2")
+        self.assertEqual(([g["name"] for g in first["games"]], first["next"]), (["A", "B"], "c2"))
+        second = await self.get_json("/api/games/catalog?first=2&after=c2")
+        self.assertEqual(([g["name"] for g in second["games"]], second["next"]), (["C"], None))
+
+    async def test_invalid_catalog_requests_are_rejected_before_contacting_twitch(self):
+        sent = self.fake_gql({})
+        for query in ("first=0", "first=61", "first=ten", "q=" + "x" * 101, "q=a&after=c1"):
+            with self.subTest(query=query):
+                response = await self.client.get("/api/games/catalog?" + query)
+                self.assertEqual(response.status, 400)
+                self.assertIn("error", await response.json())
+        names = "&".join(f"name=g{i}" for i in range(51))
+        self.assertEqual((await self.client.get("/api/games/lookup?" + names)).status, 400)
+        self.assertEqual(sent, [])
+
+    async def test_lookup_maps_each_name_to_its_twitch_game_or_null(self):
+        sent = self.fake_gql({"GameLookup": lambda v: {"data": {
+            "g0": self.node("valorant", "VALORANT"), "g1": None}}})
+        data = await self.get_json("/api/games/lookup?name=Valorant&name=Gone%20Game&name=Valorant")
+        self.assertEqual(data["games"]["Valorant"]["name"], "VALORANT")
+        self.assertIsNone(data["games"]["Gone Game"])
+        self.assertEqual(sent[0]["variables"], {"n0": "Valorant", "n1": "Gone Game"})  # deduplicated
+        self.assertEqual(await self.get_json("/api/games/lookup"), {"games": {}})
+
+    async def test_twitch_failures_and_missing_account_return_json_errors(self):
+        async def boom(op):
+            raise RuntimeError("upstream exploded with secret detail")
+        with patch.object(self.twitch, "gql_request", side_effect=boom):
+            response = await self.client.get("/api/games/catalog?q=x")
+            self.assertEqual(response.status, 502)
+            self.assertNotIn("secret", (await response.json())["error"])
+
+        await self.twitch.disconnect()
+        for path in ("/api/games/catalog", "/api/games/lookup?name=x"):
+            with self.subTest(path=path):
+                response = await self.client.get(path)
+                self.assertEqual(response.status, 409)
+
+
 class ControlEndpointsTests(ApiContractTestCase):
     async def test_control_pause_resume_reload_switch(self):
         # 1. Pause

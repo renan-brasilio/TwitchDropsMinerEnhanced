@@ -48,6 +48,7 @@ from constants import (
     COOKIES_PATH,
     MAX_CHANNELS,
     GQL_QUERIES,
+    GQL_CATALOG,
     WATCH_INTERVAL,
     State,
     ClientType,
@@ -701,8 +702,9 @@ class Twitch:
                                     await drop.claim()
                 # figure out which games we want
                 self.wanted_games.clear()
-                exclude = self.settings.exclude
-                priority = self.settings.priority
+                # Twitch display names are matched case-insensitively ("Valorant" == "VALORANT").
+                exclude = {name.casefold() for name in self.settings.exclude}
+                priority = [name.casefold() for name in self.settings.priority]
                 priority_mode = self.settings.priority_mode
                 priority_only = (priority_mode is PriorityMode.PRIORITY_ONLY) and len(priority) > 0
                 next_hour = datetime.now(timezone.utc) + timedelta(hours=1)
@@ -715,7 +717,8 @@ class Twitch:
                         sorted_campaigns.sort(key=lambda c: c.availability)
                 sorted_campaigns.sort(
                     key=lambda c: (
-                        priority.index(c.game.name) if c.game.name in priority else MAX_INT
+                        priority.index(c.game.name.casefold())
+                        if c.game.name.casefold() in priority else MAX_INT
                     )
                 )
                 for campaign in sorted_campaigns:
@@ -723,8 +726,8 @@ class Twitch:
                     if (
                         game not in self.wanted_games  # isn't already there
                         # and isn't excluded by list or priority mode
-                        and game.name not in exclude
-                        and (not priority_only or game.name in priority)
+                        and game.name.casefold() not in exclude
+                        and (not priority_only or game.name.casefold() in priority)
                         # and can be progressed within the next hour
                         and campaign.can_earn_within(next_hour)
                     ):
@@ -1659,6 +1662,59 @@ class Twitch:
                 if stream_channel_data["node"]["broadcaster"] is not None
             ]
         return []
+
+    @staticmethod
+    def _catalog_game(node: JsonType) -> JsonType:
+        # The miner matches priorities against displayName (see utils.Game), so expose that.
+        return {
+            "id": str(node["id"]),
+            "name": node.get("displayName") or node["name"],
+            "box_art": node.get("boxArtURL") or "",
+            "viewers": node.get("viewersCount") or 0,
+        }
+
+    @account_work
+    async def fetch_game_catalog(
+        self, *, query: str = "", after: str | None = None, first: int = 40
+    ) -> tuple[list[JsonType], str | None]:
+        """
+        Search every Twitch category by name, or page through all of them by viewer count.
+        Returns the games and the cursor for the next page (None at the end, and for searches).
+        """
+        if query:
+            response = await self.gql_request({
+                "query": GQL_CATALOG["search"], "variables": {"query": query, "first": first},
+            })
+            edges = (response["data"]["searchCategories"] or {}).get("edges") or []
+            return [self._catalog_game(e["node"]) for e in edges if e.get("node")], None
+        response = await self.gql_request({
+            "query": GQL_CATALOG["top"], "variables": {"first": first, "after": after},
+        })
+        games = response["data"]["games"] or {}
+        edges = games.get("edges") or []
+        has_next = (games.get("pageInfo") or {}).get("hasNextPage", False)
+        next_cursor = edges[-1]["cursor"] if edges and has_next else None
+        return [self._catalog_game(e["node"]) for e in edges if e.get("node")], next_cursor
+
+    @account_work
+    async def lookup_games(self, names: list[str]) -> dict[str, JsonType | None]:
+        """Resolve game names (e.g. saved priorities) to catalog entries; unknown names map to None."""
+        if not names:
+            return {}
+        params = ", ".join(f"$n{i}: String!" for i in range(len(names)))
+        fields = " ".join(
+            f"g{i}: game(name: $n{i}) {{ id name displayName boxArtURL(width: 285, height: 380) }}"
+            for i in range(len(names))
+        )
+        response = await self.gql_request({
+            "query": f"query GameLookup({params}) {{ {fields} }}",
+            "variables": {f"n{i}": name for i, name in enumerate(names)},
+        })
+        data = response["data"]
+        return {
+            name: (self._catalog_game(data[f"g{i}"]) if data.get(f"g{i}") else None)
+            for i, name in enumerate(names)
+        }
 
     @account_work
     async def bulk_check_online(self, channels: abc.Iterable[Channel]):

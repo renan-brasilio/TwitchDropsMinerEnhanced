@@ -459,6 +459,23 @@ GQL_QUERIES: dict[str, GQLPersistedQuery] = {
     ),
 }
 
+# Game catalog lookups for the game picker. Persisted query hashes for these change often,
+# so these are plain GQL documents; arguments always travel as variables, never interpolated.
+_CATALOG_FIELDS = "id name displayName boxArtURL(width: 285, height: 380) viewersCount"
+GQL_CATALOG: dict[str, str] = {
+    "search": (
+        "query GameSearch($query: String!, $first: Int!) { searchCategories(query: $query, first: $first) "
+        f"{{ edges {{ node {{ {_CATALOG_FIELDS} }} }} }} }}"
+    ),
+    "top": (
+        "query TopGames($first: Int!, $after: Cursor) { games(first: $first, after: $after, "
+        f"options: {{sort: VIEWER_COUNT}}) {{ edges {{ cursor node {{ {_CATALOG_FIELDS} }} }} "
+        "pageInfo { hasNextPage } } }"
+    ),
+}
+CATALOG_PAGE_MAX = 60
+CATALOG_LOOKUP_MAX = 50
+
 
 class WebsocketTopic:
     def __init__(

@@ -105,6 +105,17 @@ DROP_NAME = "E2E Reward"
 STREAMER = {"id": "7001", "login": "e2e_streamer", "displayName": "e2e_streamer"}
 BROADCAST_ID = "880001"
 VIEWERS = 1234
+# Twitch game catalog for the Games page: the drop game, a name with an apostrophe, and
+# enough filler that browsing needs a second page (the dashboard asks for 48 at a time).
+APOSTROPHE_GAME = "Assassin's Creed Shadows"
+CATALOG = [
+    {"id": GAME["id"], "name": GAME_NAME, "displayName": GAME_NAME, "boxArtURL": "", "viewersCount": VIEWERS},
+    {"id": "9101", "name": APOSTROPHE_GAME, "displayName": APOSTROPHE_GAME, "boxArtURL": "", "viewersCount": 900},
+] + [
+    {"id": str(9200 + i), "name": f"catalog game {i:02}", "displayName": f"Catalog Game {i:02}",
+     "boxArtURL": "", "viewersCount": 800 - i}
+    for i in range(1, 59)
+]
 
 
 def _iso(moment: datetime) -> str:
@@ -209,6 +220,21 @@ class VirtualTwitch:
             return {"data": {"currentUser": {"dropCurrentSession": None}}}
         if name == "DropsPage_ClaimDropRewards":
             return {"data": {"claimDropRewards": {"status": "ELIGIBLE_FOR_ALL"}}}
+        if "query" in op and "GameSearch" in op["query"]:
+            needle = variables["query"].casefold()
+            found = [g for g in CATALOG if needle in g["displayName"].casefold()][:variables["first"]]
+            return {"data": {"searchCategories": {"edges": [{"node": g} for g in found]}}}
+        if "query" in op and "TopGames" in op["query"]:
+            start = int(variables.get("after") or 0)
+            page = CATALOG[start:start + variables["first"]]
+            return {"data": {"games": {
+                "edges": [{"cursor": str(start + i + 1), "node": g} for i, g in enumerate(page)],
+                "pageInfo": {"hasNextPage": start + len(page) < len(CATALOG)},
+            }}}
+        if "query" in op and "GameLookup" in op["query"]:
+            by_name = {g["displayName"].casefold(): g for g in CATALOG}
+            return {"data": {key.replace("n", "g", 1): by_name.get(value.casefold())
+                             for key, value in variables.items()}}
         if "query" in op:  # sendSpadeEvents mutation
             return {"data": {"sendSpadeEvents": {"statusCode": 204}}}
         return {"errors": [{"message": f"virtual Twitch: unsupported operation {name!r}"}],

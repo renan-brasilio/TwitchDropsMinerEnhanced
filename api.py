@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from aiohttp import web, WSMsgType
-from constants import State, PriorityMode, WORKING_DIR
+from constants import State, PriorityMode, WORKING_DIR, CATALOG_PAGE_MAX, CATALOG_LOOKUP_MAX
 
 if TYPE_CHECKING:
     from twitch import Twitch
@@ -92,6 +92,8 @@ class APIServer:
         self._app.router.add_get("/api/inventory", self._get_inventory)
         self._app.router.add_post("/api/inventory/refresh", self._post_inventory_refresh)
         self._app.router.add_get("/api/games", self._get_games)
+        self._app.router.add_get("/api/games/catalog", self._get_games_catalog)
+        self._app.router.add_get("/api/games/lookup", self._get_games_lookup)
         self._app.router.add_get("/api/settings", self._get_settings)
         self._app.router.add_post("/api/settings", self._post_settings)
         self._app.router.add_post("/api/auth/token", self._post_auth_token)
@@ -164,33 +166,28 @@ class APIServer:
                 "message": str(e),
                 "campaigns": self._hub.get_inventory()
             }, status=500)
-    async def _get_games(self, request: web.Request) -> web.Response:
-        popular = [
-            "Overwatch", "Rust", "Rainbow Six Siege", "Dead by Daylight",
-            "Valorant", "World of Warcraft", "Escape from Tarkov", "Apex Legends",
-            "Warframe", "Palworld", "Path of Exile", "Path of Exile 2",
-            "Hunt: Showdown", "Sea of Thieves", "Rocket League", "Counter-Strike 2",
-            "Cyberpunk 2077", "Destiny 2", "The Division 2", "Warhammer 40,000: Space Marine 2",
-            "Dune: Awakening", "Delta Force", "Marvel Rivals"
-        ]
-        games_dict: dict[str, dict[str, Any]] = {}
-        for p in popular:
-            games_dict[p] = {"name": p, "discovered": False}
 
+    async def _get_games(self, request: web.Request) -> web.Response:
+        """Games with drop campaigns on this account; the full catalog is /api/games/catalog."""
+        games_dict: dict[str, dict[str, Any]] = {}
         for g in self._hub.available_games:
             g_name = g.get("name")
             if g_name:
                 games_dict[g_name] = {"name": g_name, "id": g.get("id"), "discovered": True}
 
         campaign_counts: dict[str, int] = {}
+        box_art: dict[str, str] = {}
         for camp in self._hub.get_inventory():
             c_game = camp.get("game")
             if c_game:
                 games_dict[c_game] = {"name": c_game, "discovered": True}
                 campaign_counts[c_game] = campaign_counts.get(c_game, 0) + 1
+                if camp.get("box_art"):
+                    box_art.setdefault(c_game, camp["box_art"])
 
         for g in games_dict.values():
             g["campaigns_count"] = campaign_counts.get(g["name"], 0)
+            g["box_art"] = box_art.get(g["name"], "")
 
         sorted_games = sorted(
             list(games_dict.values()),
@@ -202,6 +199,63 @@ class APIServer:
             "priority": list(self._twitch.settings.priority),
             "exclude": list(self._twitch.settings.exclude),
         })
+
+    async def _catalog_call(self, coro) -> web.Response | Any:
+        """Runs a Twitch catalog query; maps a missing account / Twitch failure to JSON errors."""
+        if not self._twitch.account_available:
+            coro.close()
+            return self._json_response({"error": "Connect a Twitch account to browse games"}, status=409)
+        try:
+            return await coro
+        except asyncio.CancelledError:
+            if self._twitch.account_available:
+                raise
+            return self._json_response({"error": "Account changed; search cancelled"}, status=409)
+        except Exception as exc:
+            logger.warning(f"Twitch game catalog request failed: {exc}")
+            return self._json_response({"error": "Twitch game catalog is unavailable right now"}, status=502)
+
+    def _campaign_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for camp in self._hub.get_inventory():
+            if camp.get("game"):
+                key = camp["game"].casefold()
+                counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    async def _get_games_catalog(self, request: web.Request) -> web.Response:
+        query = request.query.get("q", "").strip()
+        after = request.query.get("after") or None
+        try:
+            first = int(request.query.get("first", "40"))
+        except ValueError:
+            return self._json_response({"error": "first must be an integer"}, status=400)
+        if not 1 <= first <= CATALOG_PAGE_MAX:
+            return self._json_response({"error": f"first must be between 1 and {CATALOG_PAGE_MAX}"}, status=400)
+        if len(query) > 100 or (after is not None and len(after) > 200):
+            return self._json_response({"error": "Search text is too long"}, status=400)
+        if query and after:
+            return self._json_response({"error": "Search results have no further pages"}, status=400)
+        result = await self._catalog_call(self._twitch.fetch_game_catalog(query=query, after=after, first=first))
+        if isinstance(result, web.Response):
+            return result
+        games, next_cursor = result
+        counts = self._campaign_counts()
+        for game in games:
+            game["campaigns_count"] = counts.get(game["name"].casefold(), 0)
+        return self._json_response({"games": games, "next": next_cursor})
+
+    async def _get_games_lookup(self, request: web.Request) -> web.Response:
+        names = list(dict.fromkeys(n.strip() for n in request.query.getall("name", []) if n.strip()))
+        if not names:
+            return self._json_response({"games": {}})
+        if len(names) > CATALOG_LOOKUP_MAX or any(len(n) > 100 for n in names):
+            return self._json_response(
+                {"error": f"Look up at most {CATALOG_LOOKUP_MAX} names of up to 100 characters"}, status=400)
+        result = await self._catalog_call(self._twitch.lookup_games(names))
+        if isinstance(result, web.Response):
+            return result
+        return self._json_response({"games": result})
 
     async def _get_settings(self, request: web.Request) -> web.Response:
         s = self._twitch.settings

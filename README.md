@@ -31,7 +31,7 @@
   - **Menu Bar Extra (`NSStatusItem`)**: Custom Twitch + pickaxe template icon in your macOS menu bar displaying real-time progress (`[████████░░] 85%`), active streamer, viewer counts, and quick actions upon clicking.
   - **Close to Menu Bar**: Hides the window and removes the Dock icon while mining and menu bar status remain active. Use **Open Dashboard Window** in the status menu to restore the window and Dock icon.
   - **Window Close Preference**: **Keep running in the menu bar when closing the window** is enabled by default, available in **Settings → Application** and both native menus, and saved across restarts. It applies to the red close button and `Cmd+W`; disable it to quit when closing the window. **Quit** (`Cmd+Q`) always exits the app.
-  - **Settings**: One tab for the Twitch account, auto-claim preference, game-priority editor, and native application preferences, shown below the dashboard overview. Open the **Settings** tab or press `Cmd+,` on macOS. **Application** controls include the close preference, menu bar display style, and miner connection (local or remote Docker server); they appear only in the native app.
+  - **Settings**: One tab for the Twitch account, auto-claim preference, a summary of your game priorities, and native application preferences, shown below the dashboard overview. Open the **Settings** tab or press `Cmd+,` on macOS. **Application** controls include the close preference, menu bar display style, and miner connection (local or remote Docker server); they appear only in the native app.
 - **⚡ Zero-Lag Decoupled Architecture**:
   - Replaced the blocking 50–100Hz Tkinter polling loop with an async, event-driven `StateHub` that consumes 0.0% idle CPU.
 - **🔐 Modern Authentication & Captcha-Free Login**:
@@ -39,11 +39,14 @@
   - **Quick Copy**: Click-to-copy button for the activation code in the app banner and menu bar.
   - **Direct `auth-token` Cookie Login**: Paste your browser's Twitch `auth-token` cookie under **Settings → Twitch account → Advanced**. The password field clears after saving, and credentials are never returned in status/settings responses.
   - **Disconnect & Reconnect**: While an account is connected, **Settings → Twitch account** shows only **Disconnect**. Confirm it to stop mining and remove this app's saved token, cookies, and account-specific data. The app stays disconnected across restarts, even with `TWITCH_AUTH_TOKEN` configured, until you explicitly connect again. Preferences remain saved. Once disconnected, **Connect with Twitch** starts device activation, and saving a browser token under **Advanced** also reconnects. This is local to the miner—it does not sign out your browser or revoke Twitch authorization. On a remote connection, it disconnects the account on that miner server.
-- **🎮 Visual Game Priorities Manager**:
-  - Interactive game selection dropdown combining active campaign games on your account and popular Twitch drop titles.
-  - Quick-add chips with active campaign counters (e.g. `+ Overwatch (2)`).
-  - Visual ranked priority cards with rank badges, Move Up (`▲`), Move Down (`▼`), and Delete (`✕`) controls.
-  - One-click `+ Prioritize` button directly on every campaign card.
+- **🎮 Games Page (choose what to mine)**:
+  - The **Games** tab shows game cover art in a grid. Select a cover to add it to your mining order; select it again to remove it. Chosen games show their rank (`#1`, `#2`, …) on the cover.
+  - **With drops** lists the games that have drop campaigns on your account right now. **All games** browses every category on Twitch, most watched first, loading more as you scroll.
+  - **Search** finds any game on Twitch by name. If Twitch has no game with that name, you can still add it exactly as typed.
+  - The **Mining order** panel beside the grid lists your games top to bottom with their covers and drop campaign counts. Reorder with `▲`/`▼`, remove with `✕`, and pick the **Priority mode** there. Changes save immediately.
+  - A saved game that no longer matches any Twitch game (for example after a rename) is marked **Not found on Twitch**, since it can never be mined.
+  - Game names match Twitch case-insensitively, so a saved `Valorant` mines Twitch's `VALORANT`.
+  - Browsing and search need a connected Twitch account. The `+ Prioritize` button on every campaign card still adds that game in one click.
 - **Campaign schedule and reward claiming**:
   - Each campaign shows its start and end dates in your local timezone, plus time remaining.
   - Fully claimed campaigns are hidden. Ended campaigns remain visible only while this account has an eligible, unclaimed reward within Twitch's claim window; only those claimable rewards are listed for ended campaigns.

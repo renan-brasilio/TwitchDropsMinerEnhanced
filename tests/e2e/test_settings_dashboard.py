@@ -188,44 +188,6 @@ class AutoClaimFromCampaignsTests(DashboardTestCase):
         expect(settings_toggle).not_to_be_checked()
 
 
-class PriorityEditorTests(DashboardTestCase):
-    harness_options = {"priority": (GAME_NAME,)}
-
-    def ranked_games(self):
-        return self.page.locator("#priorityRankedList strong")
-
-    def reload_settings(self):
-        self.page.reload()
-        self.open_settings()
-
-    def test_custom_game_order_and_mode_persist_after_reload(self):
-        self.open_dashboard()
-        self.open_settings()
-        expect(self.ranked_games()).to_have_text([GAME_NAME])
-        mode = self.page.get_by_label("Priority Mode:")
-        expect(mode).to_have_value("0")
-
-        self.page.get_by_label("Custom game title").fill("Custom Frontier")
-        self.page.get_by_role("button", name="Add Custom").click()
-        expect(self.ranked_games()).to_have_text([GAME_NAME, "Custom Frontier"])
-        expect(self.page.get_by_label("Custom game title")).to_have_value("")
-        row = self.page.locator("#priorityRankedList > div").filter(has_text="Custom Frontier")
-        row.get_by_role("button", name="▲").click()
-        expect(self.ranked_games()).to_have_text(["Custom Frontier", GAME_NAME])
-        expect(mode).to_be_enabled()  # editor controls unlock after the save round-trip
-
-        self.reload_settings()
-        expect(self.ranked_games()).to_have_text(["Custom Frontier", GAME_NAME])
-        expect(self.page.locator("#priorityRankedList .pill")).to_have_text(["#1", "#2"])
-        expect(mode).to_have_value("0")
-        mode.select_option(label="Ending Soonest")
-        expect(mode).to_be_enabled()
-
-        self.reload_settings()
-        expect(mode).to_have_value("1")
-        expect(self.ranked_games()).to_have_text(["Custom Frontier", GAME_NAME])
-
-
 class NativeBridgeTests(DashboardTestCase):
     """Web side of the mac/main.swift settings bridge, with a simulated WKScriptMessageHandler."""
 

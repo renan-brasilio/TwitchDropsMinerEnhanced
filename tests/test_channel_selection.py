@@ -291,6 +291,17 @@ class MiningLoopSelectionTests(SelectionTestCase):
         self.assertEqual(await self.select(), (["Beta"], None))
         self.assertIs(self.twitch._state, State.IDLE)
 
+    async def test_priority_and_exclude_match_twitch_names_case_insensitively(self):
+        # Saved names like "Valorant" must match Twitch's display name "VALORANT".
+        for game in (ALPHA, BETA, GAMMA):
+            self.add_campaign(game)
+        self.live(ALPHA, (1, 1000))
+        self.live(BETA, (2, 5))
+        self.settings.priority = ["BETA", "alpha", "gamma"]
+        self.settings.exclude = {"GAMMA"}
+
+        self.assertEqual(await self.select(), (["Beta", "Alpha"], 2))
+
     async def test_ending_soonest_orders_unprioritized_games_by_campaign_end(self):
         self.add_campaign(ALPHA, end=NOW + timedelta(days=3))
         self.add_campaign(BETA, end=NOW + timedelta(days=1))

@@ -448,6 +448,154 @@
       color: #bf94ff;
     }
 
+    /* Games page: cover-art picker + mining order */
+    .visually-hidden {
+      position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+    }
+
+    .games-page {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 20px;
+      align-items: start;
+    }
+
+    .games-page > .panel { margin-bottom: 0; }
+
+    .games-order {
+      position: sticky;
+      top: 64px;
+      max-height: calc(100vh - 84px);
+      overflow-y: auto;
+    }
+
+    .games-toolbar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .games-toolbar .form-input { flex: 1 1 260px; }
+
+    .games-filter {
+      display: inline-flex;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+    }
+
+    .games-filter button {
+      background: var(--surface-subtle);
+      color: var(--text-muted);
+      border: none;
+      padding: 7px 12px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    .games-filter button + button { border-left: 1px solid var(--border); }
+    .games-filter button:hover { color: var(--text); }
+    .games-filter button[aria-selected="true"] { background: var(--surface-hover); color: var(--text); font-weight: 600; }
+    .games-filter button:disabled { opacity: 0.5; cursor: default; }
+    .games-filter button:focus-visible, .game-tile:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+
+    .games-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+      gap: 14px;
+    }
+
+    .game-tile {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 0;
+      background: none;
+      border: none;
+      color: var(--text);
+      text-align: left;
+      font: inherit;
+      cursor: pointer;
+      min-width: 0;
+    }
+
+    .game-cover {
+      position: relative;
+      display: block;
+      aspect-ratio: 3 / 4;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      transition: border-color 0.15s ease;
+    }
+
+    .game-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    .game-cover-fallback {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      padding: 8px; text-align: center;
+      color: var(--text-subtle); font-size: 12px; font-weight: 600;
+    }
+
+    .game-tile:hover .game-cover { border-color: var(--text-subtle); }
+    .game-tile[aria-pressed="true"] .game-cover { border: 2px solid var(--accent); }
+    .game-tile:disabled { cursor: progress; }
+
+    .game-rank {
+      position: absolute; top: 6px; left: 6px;
+      background: var(--accent); color: #fff;
+      font-size: 11px; font-weight: 700;
+      padding: 2px 6px; border-radius: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .game-name {
+      font-size: 13px; font-weight: 600; line-height: 1.3;
+      overflow: hidden; text-overflow: ellipsis;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    }
+
+    .game-meta { font-size: 11px; color: var(--text-subtle); display: flex; gap: 6px; flex-wrap: wrap; }
+    .game-meta .drops-tag { color: #bf94ff; font-weight: 600; }
+
+    .games-footer { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
+
+    .priority-list { list-style: none; display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+
+    .priority-item {
+      display: grid;
+      grid-template-columns: 22px 30px minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 6px 8px;
+    }
+
+    .priority-rank { font-size: 12px; font-weight: 700; color: #bf94ff; font-variant-numeric: tabular-nums; text-align: right; }
+    .priority-thumb { width: 30px; height: 40px; border-radius: 3px; object-fit: cover; background: var(--surface); border: 1px solid var(--border); display: block; }
+    .priority-name { font-size: 13px; font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .priority-sub { font-size: 11px; color: var(--text-subtle); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .priority-sub.has-drops { color: #bf94ff; }
+    .priority-sub.not-found { color: var(--status-idle); }
+    .priority-actions { display: flex; gap: 2px; }
+    .priority-actions .btn { padding: 2px 6px; font-size: 11px; }
+
+    .summary-covers { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    .summary-covers img, .summary-covers span { width: 36px; height: 48px; border-radius: 3px; object-fit: cover; border: 1px solid var(--border); background: var(--surface-subtle); }
+
+    @media (max-width: 900px) {
+      .games-page { grid-template-columns: 1fr; }
+      .games-order { position: static; max-height: none; order: -1; }
+    }
+
     .pill-online {
       background: rgba(34, 197, 94, 0.15);
       color: var(--status-active);
@@ -710,6 +858,10 @@
         <svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
         Campaigns & Rewards
       </button>
+      <button class="tab-item" onclick="switchTab('games')">
+        <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="4"/><line x1="7" y1="10" x2="7" y2="14"/><line x1="5" y1="12" x2="9" y2="12"/><circle cx="16" cy="11" r="0.8"/><circle cx="18" cy="13" r="0.8"/></svg>
+        Games
+      </button>
       <button class="tab-item" onclick="switchTab('settings')">
         <svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="m9 3-1 3-3 1-2 3 2 2-1 3 3 2 3-1 2 2 3-2 1-3 3-1-1-3-3-1-1-3Z"/></svg>
         Settings
@@ -769,6 +921,49 @@
       </div>
     </div>
 
+    <!-- TAB: GAMES -->
+    <div id="tab-games" style="display: none;">
+      <div class="games-page">
+        <section class="panel" aria-labelledby="gamesBrowserHeading">
+          <div class="panel-header">
+            <h2 class="panel-title" id="gamesBrowserHeading">Choose games to mine</h2>
+          </div>
+          <div class="games-toolbar">
+            <label for="gameSearch" class="visually-hidden">Search Twitch games</label>
+            <input type="search" class="form-input" id="gameSearch" placeholder="Search every game on Twitch" autocomplete="off" spellcheck="false">
+            <div class="games-filter" role="tablist" aria-label="Game list">
+              <button type="button" role="tab" id="gamesViewDrops" aria-selected="true" onclick="setGamesView('drops')">With drops <span id="dropsGamesCount"></span></button>
+              <button type="button" role="tab" id="gamesViewAll" aria-selected="false" onclick="setGamesView('all')">All games</button>
+            </div>
+          </div>
+          <p id="gamesStatus" role="status" class="form-help" style="margin: 0 0 12px;"></p>
+          <div id="gamesGrid" class="games-grid" aria-labelledby="gamesBrowserHeading"></div>
+          <div id="gamesSentinel" aria-hidden="true"></div>
+          <div class="games-footer">
+            <button type="button" class="btn" id="btnGamesMore" hidden onclick="loadMoreGames()">Load more games</button>
+            <button type="button" class="btn" id="btnAddTyped" hidden onclick="addTypedGame()"></button>
+          </div>
+        </section>
+        <aside class="panel games-order" id="miningOrderPanel" aria-labelledby="miningOrderHeading">
+          <h2 class="panel-title" id="miningOrderHeading">Mining order</h2>
+          <p class="form-help">Mined top to bottom. Changes save immediately.</p>
+          <ol id="priorityRankedList" class="priority-list"></ol>
+          <p id="priorityEmptyNotice" class="form-help" style="display: none; padding: 12px; border: 1px dashed var(--border); border-radius: var(--radius-sm);">
+            No games chosen. The miner progresses any active drop campaign on your account.
+          </p>
+          <div class="form-group" style="padding-top: 12px; border-top: 1px solid var(--border);">
+            <label class="form-label" for="priorityMode">Priority mode</label>
+            <select class="form-input" id="priorityMode" onchange="savePriorities(false)">
+              <option value="0">Priority Games Only (Default)</option>
+              <option value="1">Ending Soonest</option>
+              <option value="2">Lowest Availability First</option>
+            </select>
+            <div class="form-help">"Priority Games Only" mines only the games listed here. "Ending Soonest" and "Lowest Availability First" mine these first, then other drop campaigns in that order.</div>
+          </div>
+        </aside>
+      </div>
+    </div>
+
     <!-- TAB: SETTINGS -->
     <div id="tab-settings" style="display: none;">
       <div class="panel">
@@ -816,52 +1011,12 @@
           <p class="form-help">This is the same preference as the auto-claim shortcut in Campaigns &amp; Rewards.</p>
         </section>
         <section id="gamePrioritySettings" aria-labelledby="prioritiesHeading" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border);">
-        <div class="panel-header">
-          <h3 class="panel-title" id="prioritiesHeading">Game priorities</h3>
-          <button class="btn btn-primary" onclick="savePriorities()">Save Configuration</button>
-        </div>
-
-        <!-- Game Selection Dropdown & Custom Field -->
-        <div class="form-group">
-          <label class="form-label" for="gameSelectDropdown">Select Game to Prioritize:</label>
-          <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-            <select class="form-input" id="gameSelectDropdown" style="flex: 1;" onchange="onGameDropdownChange()">
-              <option value="">-- Choose game from campaigns or catalog --</option>
-            </select>
-            <button class="btn btn-primary" onclick="addSelectedGame()">Add Game</button>
+          <div class="panel-header" style="margin-bottom: 4px;">
+            <h3 class="panel-title" id="prioritiesHeading">Game priorities</h3>
+            <button type="button" class="btn btn-primary" onclick="switchTab('games')">Choose games</button>
           </div>
-          <div style="display: flex; gap: 8px;">
-            <label for="customGameInput" class="form-label" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);">Custom game title</label>
-            <input type="text" class="form-input" id="customGameInput" placeholder="Or enter any custom game title..." style="flex: 1;">
-            <button class="btn" onclick="addCustomGame()">Add Custom</button>
-          </div>
-        </div>
-
-        <!-- Quick-Add Popular Chips -->
-        <div class="form-group">
-          <label class="form-label" style="font-size: 12px; color: var(--text-muted);">Quick-Add Games:</label>
-          <div id="quickAddChips" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
-        </div>
-
-        <!-- Visual Reorderable Priority List -->
-        <div class="form-group" style="padding-top: 8px; border-top: 1px solid var(--border);">
-          <label class="form-label">Active Priority Order (Mined top to bottom):</label>
-          <div id="priorityRankedList" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px;"></div>
-          <div id="priorityEmptyNotice" style="color: var(--text-muted); font-size: 12px; padding: 12px; background: var(--surface-subtle); border-radius: var(--radius-sm); border: 1px dashed var(--border); display: none;">
-            No specific games prioritized. The miner will automatically progress any active drop campaign on your account.
-          </div>
-        </div>
-
-        <!-- Priority Mode -->
-        <div class="form-group" style="padding-top: 12px; border-top: 1px solid var(--border);">
-          <label class="form-label" for="priorityMode">Priority Mode:</label>
-          <select class="form-input" id="priorityMode" onchange="savePriorities(false)">
-            <option value="0">Priority Games Only (Default)</option>
-            <option value="1">Ending Soonest</option>
-            <option value="2">Lowest Availability First</option>
-          </select>
-          <div class="form-help">"Priority Games Only" mines strictly your prioritized titles. "Ending Soonest" mines prioritized titles first, then campaigns ending soonest.</div>
-        </div>
+          <p id="prioritySummary" class="form-help"></p>
+          <div id="prioritySummaryCovers" class="summary-covers"></div>
         </section>
         <section id="nativeApplicationSettings" aria-labelledby="applicationHeading" style="display: none; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border);">
           <h3 class="panel-title" id="applicationHeading">Application</h3>
@@ -1420,10 +1575,10 @@
         <div class="campaign-item">
           <div class="campaign-meta-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
             <div style="display: flex; align-items: center; gap: 12px;">
-              ${c.box_art ? `<img src="${c.box_art}" alt="${c.game}" style="width: 44px; height: 58px; border-radius: 4px; object-fit: cover; border: 1px solid var(--border); flex-shrink: 0; background: var(--surface);">` : ''}
+              ${c.box_art ? `<img src="${escapeHtml(c.box_art)}" alt="${escapeHtml(c.game)}" style="width: 44px; height: 58px; border-radius: 4px; object-fit: cover; border: 1px solid var(--border); flex-shrink: 0; background: var(--surface);">` : ''}
               <div>
-                <div class="campaign-game-tag">${c.game}</div>
-                <strong style="font-size: 14px; display: block; margin-top: 2px;">${c.name}</strong>
+                <div class="campaign-game-tag">${escapeHtml(c.game)}</div>
+                <strong style="font-size: 14px; display: block; margin-top: 2px;">${escapeHtml(c.name)}</strong>
                 <div style="font-size: 11px; color: var(--text-subtle); margin-top: 2px;">
                   ${formatCampaignDate(c.starts_at)} – ${formatCampaignDate(c.ends_at)}
                   ${c.ends_at ? ` · <span style="color: ${new Date(c.ends_at) > new Date() ? 'var(--status-active)' : 'var(--status-error)'};">${campaignTimeRemaining(c.ends_at)}</span>` : ''}
@@ -1431,7 +1586,7 @@
               </div>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
-              <button class="btn" style="padding: 2px 8px; font-size: 11px;" onclick="addGameToPriority('${c.game}')">+ Prioritize</button>
+              <button class="btn" style="padding: 2px 8px; font-size: 11px;" data-game="${escapeHtml(c.game)}" onclick="addGameToPriority(this.dataset.game)">+ Prioritize</button>
               <span class="pill ${c.linked ? 'pill-online' : 'pill-offline'}">${c.linked ? 'Linked' : 'Unlinked'}</span>
             </div>
           </div>
@@ -1529,7 +1684,7 @@
     }
 
     function switchTab(tabId) {
-      const allTabs = ['channels', 'campaigns', 'settings', 'console'];
+      const allTabs = ['channels', 'campaigns', 'games', 'settings', 'console'];
       allTabs.forEach(id => {
         const el = document.getElementById('tab-' + id);
         if (el) el.style.display = (id === tabId) ? 'block' : 'none';
@@ -1541,6 +1696,9 @@
         loadPriorities();
         pollFullState();
         applyNativeSettings(nativePreferences || window.nativeSettings);
+      }
+      if (tabId === 'games') {
+        loadPriorities().then(initGamesBrowser);
       }
     }
 
@@ -1630,6 +1788,45 @@
     let priorityList = [];
     let cachedAvailableGames = [];
     let cachedCampaignCounts = {};
+    // Box art by case-insensitive game name, filled from every catalog / drops / lookup response.
+    const gameArt = new Map();
+    const lookedUpArt = new Set();
+    // Priorities Twitch has no game for (e.g. renamed titles); they can never be mined.
+    const unknownGames = new Set();
+    const games = { view: 'drops', query: '', items: [], next: null, loading: false, error: '', seq: 0, ready: false, timer: null };
+    const viewerFormat = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    }
+
+    // Twitch display names are matched case-insensitively by the miner ("Valorant" == "VALORANT").
+    function gameKey(name) {
+      return String(name).toLocaleLowerCase();
+    }
+
+    function rememberArt(list) {
+      (list || []).forEach(game => {
+        if (game && game.name && game.box_art) gameArt.set(gameKey(game.name), game.box_art);
+      });
+    }
+
+    function priorityIndex(name) {
+      const key = gameKey(name);
+      return priorityList.findIndex(entry => gameKey(entry) === key);
+    }
+
+    function campaignCountFor(name) {
+      const key = gameKey(name);
+      for (const [game, count] of Object.entries(cachedCampaignCounts)) {
+        if (gameKey(game) === key) return count;
+      }
+      return 0;
+    }
+
+    function dropGames() {
+      return cachedAvailableGames.filter(game => (game.campaigns_count || 0) > 0);
+    }
 
     async function loadPriorities(force = false) {
       if (prioritiesPending && !force) return;
@@ -1650,169 +1847,360 @@
         cachedCampaignCounts = gamesData.campaign_counts || cachedCampaignCounts || {};
         document.getElementById('priorityMode').value = settingsData.priority_mode || 0;
         prioritiesLoaded = true;
-
-        updateGameSelectors();
+        rememberArt(cachedAvailableGames);
+        const dropCount = dropGames().length;
+        document.getElementById('dropsGamesCount').textContent = dropCount ? `(${dropCount})` : '';
+        if (games.ready && !games.query && games.view === 'drops') showDropGames();
         renderPriorityList();
+        lookupMissingArt();
       } catch (err) {
         showToast('Failed to load settings: ' + err.message, 'error');
       }
     }
 
-    function updateGameSelectors() {
-      const dropdown = document.getElementById('gameSelectDropdown');
-      dropdown.innerHTML = '<option value="">-- Choose game to prioritize --</option>';
+    async function lookupMissingArt() {
+      const names = priorityList
+        .filter(name => !gameArt.has(gameKey(name)) && !lookedUpArt.has(gameKey(name)))
+        .slice(0, 50);
+      if (!names.length || !cachedState.is_logged_in) return;
+      names.forEach(name => lookedUpArt.add(gameKey(name)));
+      const params = new URLSearchParams();
+      names.forEach(name => params.append('name', name));
+      try {
+        const data = await responseData(await apiFetch('/api/games/lookup?' + params));
+        Object.entries(data.games || {}).forEach(([name, game]) => {
+          if (game) rememberArt([{ name, box_art: game.box_art }, game]);
+          else unknownGames.add(gameKey(name));
+        });
+        renderPriorityList();
+      } catch (err) {
+        names.forEach(name => lookedUpArt.delete(gameKey(name)));
+      }
+    }
 
-      const discoveredGroup = document.createElement('optgroup');
-      discoveredGroup.label = 'Active Campaigns on Your Account';
-      const popularGroup = document.createElement('optgroup');
-      popularGroup.label = 'Popular Twitch Drops Games';
-
-      let discoveredCount = 0;
-      let popularCount = 0;
-
-      cachedAvailableGames.forEach(g => {
-        if (priorityList.includes(g.name)) return;
-
-        const opt = document.createElement('option');
-        opt.value = g.name;
-        const count = g.campaigns_count || cachedCampaignCounts[g.name] || 0;
-        const countSuffix = count > 0 ? ` (${count} active campaign${count > 1 ? 's' : ''})` : '';
-        opt.textContent = `${g.name}${countSuffix}`;
-        if (g.discovered || count > 0) {
-          discoveredGroup.appendChild(opt);
-          discoveredCount++;
-        } else {
-          popularGroup.appendChild(opt);
-          popularCount++;
+    // ---- Games page: search, drops / all-games views, cover tiles --------------------------
+    // Search input is live from page load; results render once the Games tab has loaded its data.
+    function bindGameSearch() {
+      const search = document.getElementById('gameSearch');
+      search.addEventListener('input', () => {
+        clearTimeout(games.timer);
+        games.timer = setTimeout(() => runGameSearch(search.value), 300);
+      });
+      search.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+          clearTimeout(games.timer);
+          runGameSearch(search.value);
+        } else if (event.key === 'Escape' && search.value) {
+          search.value = '';
+          clearTimeout(games.timer);
+          runGameSearch('');
         }
       });
-
-      if (discoveredCount > 0) dropdown.appendChild(discoveredGroup);
-      if (popularCount > 0) dropdown.appendChild(popularGroup);
-
-      // Populate Quick-Add Chips
-      const chipsContainer = document.getElementById('quickAddChips');
-      chipsContainer.innerHTML = '';
-      const popularChips = ['Overwatch', 'Rust', 'Rainbow Six Siege', 'Valorant', 'Dead by Daylight', 'Escape from Tarkov', 'World of Warcraft', 'Apex Legends'];
-      const remainingPopular = popularChips.filter(name => !priorityList.includes(name));
-
-      if (remainingPopular.length === 0) {
-        chipsContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 12px;">All top games already added to priorities.</span>';
-      } else {
-        remainingPopular.forEach(name => {
-          const count = cachedCampaignCounts[name] || 0;
-          const countBadge = count > 0 ? ` (${count})` : '';
-          const btn = document.createElement('button');
-          btn.className = 'btn';
-          btn.style.cssText = 'padding: 3px 8px; font-size: 11px;';
-          btn.textContent = `+ ${name}${countBadge}`;
-          btn.onclick = () => addGameToPriority(name);
-          chipsContainer.appendChild(btn);
-        });
+      if ('IntersectionObserver' in window) {
+        new IntersectionObserver(entries => {
+          if (games.ready && entries.some(entry => entry.isIntersecting) && !games.error) loadMoreGames();
+        }, { rootMargin: '400px' }).observe(document.getElementById('gamesSentinel'));
       }
+    }
+
+    function initGamesBrowser() {
+      if (games.ready) return;
+      games.ready = true;
+      games.view = dropGames().length ? 'drops' : 'all';
+      games.query = document.getElementById('gameSearch').value.trim();
+      refreshGamesView();
+    }
+
+    function setGamesView(view) {
+      if (games.query || games.view === view) return;
+      games.view = view;
+      refreshGamesView();
+    }
+
+    function runGameSearch(text) {
+      const query = text.trim();
+      if (query === games.query) return;
+      games.query = query;
+      if (games.ready) refreshGamesView();
+    }
+
+    function refreshGamesView() {
+      ++games.seq;
+      games.items = [];
+      games.next = null;
+      games.error = '';
+      games.loading = false;
+      if (!games.query && games.view === 'drops') {
+        showDropGames();
+      } else {
+        fetchGamesPage();
+      }
+    }
+
+    function showDropGames() {
+      games.items = dropGames().map(game => ({
+        name: game.name, box_art: game.box_art, campaigns_count: game.campaigns_count, viewers: null,
+      }));
+      games.next = null;
+      games.error = '';
+      renderGamesGrid();
+    }
+
+    async function fetchGamesPage() {
+      if (games.loading) return;
+      const seq = games.seq;
+      games.loading = true;
+      renderGamesGrid();
+      const params = new URLSearchParams({ first: '48' });
+      if (games.query) params.set('q', games.query);
+      else if (games.next) params.set('after', games.next);
+      try {
+        const data = await responseData(await apiFetch('/api/games/catalog?' + params));
+        if (seq !== games.seq) return;
+        rememberArt(data.games);
+        const seen = new Set(games.items.map(game => gameKey(game.name)));
+        games.items.push(...(data.games || []).filter(game => !seen.has(gameKey(game.name))));
+        games.next = data.next || null;
+      } catch (err) {
+        if (seq === games.seq) games.error = err.message;
+      } finally {
+        if (seq === games.seq) {
+          games.loading = false;
+          renderGamesGrid();
+        }
+      }
+    }
+
+    function loadMoreGames() {
+      if (games.loading) return;
+      if (games.error) {
+        games.error = '';
+        fetchGamesPage();
+      } else if (games.next && !games.query && games.view === 'all') {
+        fetchGamesPage();
+      }
+    }
+
+    function coverFallback(name) {
+      const span = document.createElement('span');
+      span.className = 'game-cover-fallback';
+      span.textContent = name;
+      return span;
+    }
+
+    function gameTile(game) {
+      const tile = document.createElement('button');
+      tile.type = 'button';
+      tile.className = 'game-tile';
+      tile.dataset.game = game.name;
+      tile.onclick = () => toggleGame(game.name);
+
+      const cover = document.createElement('span');
+      cover.className = 'game-cover';
+      const art = game.box_art || gameArt.get(gameKey(game.name));
+      if (art) {
+        const img = document.createElement('img');
+        img.src = art;
+        img.alt = '';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.onerror = () => img.replaceWith(coverFallback(game.name));
+        cover.append(img);
+      } else {
+        cover.append(coverFallback(game.name));
+      }
+
+      const name = document.createElement('span');
+      name.className = 'game-name';
+      name.textContent = game.name;
+
+      const meta = document.createElement('span');
+      meta.className = 'game-meta';
+      const campaigns = game.campaigns_count || campaignCountFor(game.name);
+      if (campaigns > 0) {
+        const tag = document.createElement('span');
+        tag.className = 'drops-tag';
+        tag.textContent = `Drops · ${campaigns} campaign${campaigns > 1 ? 's' : ''}`;
+        meta.append(tag);
+      }
+      if (game.viewers > 0) {
+        const viewers = document.createElement('span');
+        viewers.textContent = `${viewerFormat.format(game.viewers)} viewers`;
+        meta.append(viewers);
+      }
+
+      tile.append(cover, name, meta);
+      updateTileState(tile);
+      return tile;
+    }
+
+    function updateTileState(tile) {
+      const rank = priorityIndex(tile.dataset.game);
+      tile.setAttribute('aria-pressed', String(rank >= 0));
+      let badge = tile.querySelector('.game-rank');
+      if (rank >= 0) {
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.className = 'game-rank';
+          tile.querySelector('.game-cover').append(badge);
+        }
+        badge.textContent = `#${rank + 1}`;
+      } else if (badge) {
+        badge.remove();
+      }
+    }
+
+    function renderGamesGrid() {
+      const searching = Boolean(games.query);
+      const dropsTab = document.getElementById('gamesViewDrops');
+      const allTab = document.getElementById('gamesViewAll');
+      dropsTab.setAttribute('aria-selected', String(!searching && games.view === 'drops'));
+      allTab.setAttribute('aria-selected', String(!searching && games.view === 'all'));
+      dropsTab.disabled = allTab.disabled = searching;
+
+      const grid = document.getElementById('gamesGrid');
+      grid.replaceChildren(...games.items.map(gameTile));
+      grid.setAttribute('aria-busy', String(games.loading));
+
+      let message;
+      if (games.error) message = games.error;
+      else if (games.loading && !games.items.length) message = searching ? `Searching Twitch for “${games.query}”…` : 'Loading games from Twitch…';
+      else if (searching) message = games.items.length ? `${games.items.length} games match “${games.query}”.` : `No Twitch game matches “${games.query}”.`;
+      else if (games.view === 'drops') message = games.items.length
+        ? 'Games with drop campaigns on your account right now. Select a cover to add or remove it.'
+        : 'No drop campaigns on your account right now. Search, or browse all games, to choose some anyway.';
+      else message = 'Every game on Twitch, most watched first. Select a cover to add or remove it.';
+      document.getElementById('gamesStatus').textContent = message;
+
+      const more = document.getElementById('btnGamesMore');
+      more.hidden = !(games.error || (games.next && !searching && games.view === 'all'));
+      more.disabled = games.loading;
+      more.textContent = games.error ? 'Try again' : (games.loading ? 'Loading…' : 'Load more games');
+      updateTypedGameButton();
+    }
+
+    function updateTypedGameButton() {
+      const typed = document.getElementById('btnAddTyped');
+      const query = games.query;
+      const exactMatch = games.items.some(game => gameKey(game.name) === gameKey(query));
+      typed.hidden = !query || games.loading || exactMatch || priorityIndex(query) >= 0;
+      typed.textContent = `Add “${query}” exactly as typed`;
+    }
+
+    function refreshTileStates() {
+      document.querySelectorAll('#gamesGrid .game-tile').forEach(updateTileState);
+      if (games.ready) updateTypedGameButton();
+    }
+
+    function toggleGame(name) {
+      const index = priorityIndex(name);
+      if (index >= 0) removePriority(index);
+      else addGameToPriority(name);
+    }
+
+    function addTypedGame() {
+      if (games.query) addGameToPriority(games.query);
+    }
+
+    // ---- Mining order --------------------------------------------------------------------
+    function priorityThumb(name, className) {
+      const art = gameArt.get(gameKey(name));
+      if (!art) {
+        const blank = document.createElement('span');
+        blank.className = className;
+        return blank;
+      }
+      const img = document.createElement('img');
+      img.className = className;
+      img.src = art;
+      img.alt = '';
+      img.loading = 'lazy';
+      return img;
+    }
+
+    function priorityButton(label, text, onClick, disabled = false) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn';
+      button.textContent = text;
+      button.setAttribute('aria-label', label);
+      button.title = label;
+      button.disabled = disabled;
+      button.onclick = onClick;
+      return button;
     }
 
     function renderPriorityList() {
       const container = document.getElementById('priorityRankedList');
-      const emptyNotice = document.getElementById('priorityEmptyNotice');
-      container.innerHTML = '';
+      document.getElementById('priorityEmptyNotice').style.display = priorityList.length ? 'none' : 'block';
+      container.replaceChildren(...priorityList.map((game, index) => {
+        const item = document.createElement('li');
+        item.className = 'priority-item';
 
-      if (!priorityList || priorityList.length === 0) {
-        emptyNotice.style.display = 'block';
-        return;
-      }
-      emptyNotice.style.display = 'none';
+        const rank = document.createElement('span');
+        rank.className = 'priority-rank';
+        rank.textContent = String(index + 1);
 
-      priorityList.forEach((game, index) => {
-        const row = document.createElement('div');
-        row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; background: var(--surface-subtle); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 13px;';
-        
-        const count = cachedCampaignCounts[game] || 0;
-        const countSubtitle = count > 0 
-          ? `<span style="color: #bf94ff; font-size: 11px; font-weight: 500;">${count} active campaign${count > 1 ? 's' : ''}</span>`
-          : `<span style="color: var(--text-subtle); font-size: 11px;">No active campaigns currently</span>`;
+        const info = document.createElement('div');
+        info.style.minWidth = '0';
+        const name = document.createElement('strong');
+        name.className = 'priority-name';
+        name.textContent = game;
+        name.title = game;
+        const sub = document.createElement('span');
+        const count = campaignCountFor(game);
+        const unknown = unknownGames.has(gameKey(game));
+        sub.className = 'priority-sub' + (count > 0 ? ' has-drops' : '') + (unknown ? ' not-found' : '');
+        sub.textContent = count > 0 ? `${count} drop campaign${count > 1 ? 's' : ''}`
+          : (unknown ? 'Not found on Twitch' : 'No drops now');
+        if (unknown) sub.title = 'Twitch has no game with this exact name, so it will never be mined. Search for it and pick the current title.';
+        info.append(name, sub);
 
-        const left = document.createElement('div');
-        left.style.cssText = 'display: flex; align-items: center; gap: 10px;';
-        left.innerHTML = `
-          <span class="pill pill-active mono">#${index + 1}</span>
-          <div>
-            <strong style="font-size: 13px; display: block; line-height: 1.3;">${game}</strong>
-            ${countSubtitle}
-          </div>
-        `;
         const actions = document.createElement('div');
-        actions.style.cssText = 'display: flex; gap: 4px;';
+        actions.className = 'priority-actions';
+        actions.append(
+          priorityButton(`Move ${game} up`, '▲', () => movePriority(index, -1), index === 0),
+          priorityButton(`Move ${game} down`, '▼', () => movePriority(index, 1), index === priorityList.length - 1),
+          priorityButton(`Remove ${game}`, '✕', () => removePriority(index)),
+        );
 
-        const upBtn = document.createElement('button');
-        upBtn.className = 'btn';
-        upBtn.style.cssText = 'padding: 2px 6px; font-size: 11px;';
-        upBtn.textContent = '▲';
-        upBtn.disabled = (index === 0);
-        upBtn.onclick = () => movePriority(index, -1);
-
-        const downBtn = document.createElement('button');
-        downBtn.className = 'btn';
-        downBtn.style.cssText = 'padding: 2px 6px; font-size: 11px;';
-        downBtn.textContent = '▼';
-        downBtn.disabled = (index === priorityList.length - 1);
-        downBtn.onclick = () => movePriority(index, 1);
-
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'btn';
-        deleteBtn.style.cssText = 'padding: 2px 6px; font-size: 11px; color: var(--status-error);';
-        deleteBtn.textContent = '✕';
-        deleteBtn.onclick = () => removePriority(index);
-
-        actions.appendChild(upBtn);
-        actions.appendChild(downBtn);
-        actions.appendChild(deleteBtn);
-
-        row.appendChild(left);
-        row.appendChild(actions);
-        container.appendChild(row);
-      });
+        item.append(rank, priorityThumb(game, 'priority-thumb'), info, actions);
+        return item;
+      }));
+      renderPrioritySummary();
+      refreshTileStates();
     }
 
-    function onGameDropdownChange() {
-      const dropdown = document.getElementById('gameSelectDropdown');
-      if (dropdown.value) {
-        addGameToPriority(dropdown.value);
-        dropdown.value = '';
-      }
-    }
-
-    function addSelectedGame() {
-      const dropdown = document.getElementById('gameSelectDropdown');
-      if (dropdown.value) {
-        addGameToPriority(dropdown.value);
-        dropdown.value = '';
-      }
-    }
-
-    function addCustomGame() {
-      const input = document.getElementById('customGameInput');
-      const val = input.value.trim();
-      if (val) {
-        addGameToPriority(val);
-        input.value = '';
-      }
+    function renderPrioritySummary() {
+      const mode = document.getElementById('priorityMode');
+      const modeText = mode.selectedOptions[0] ? mode.selectedOptions[0].textContent : '';
+      const shown = priorityList.slice(0, 3).join(', ');
+      const rest = priorityList.length > 3 ? ` and ${priorityList.length - 3} more` : '';
+      document.getElementById('prioritySummary').textContent = priorityList.length
+        ? `Mining order: ${shown}${rest}. Mode: ${modeText}.`
+        : 'No games chosen. The miner progresses any active drop campaign on your account.';
+      document.getElementById('prioritySummaryCovers').replaceChildren(...priorityList.slice(0, 12).map(name => {
+        const thumb = priorityThumb(name, '');
+        thumb.title = name;
+        if (thumb.tagName === 'IMG') thumb.alt = name;
+        return thumb;
+      }));
     }
 
     function addGameToPriority(gameName) {
       if (prioritiesPending || !gameName) return;
       if (!prioritiesLoaded) {
-        showToast('Game settings are still loading. Open Settings and try again.', 'error');
+        showToast('Game settings are still loading. Try again in a moment.', 'error');
         return;
       }
-      if (priorityList.includes(gameName)) {
-        showToast(`${gameName} is already prioritized`, 'info');
+      if (priorityIndex(gameName) >= 0) {
+        showToast(`${gameName} is already in your mining order`, 'info');
         return;
       }
       priorityList.push(gameName);
-      updateGameSelectors();
       renderPriorityList();
       savePriorities(false);
+      lookupMissingArt();
     }
 
     function movePriority(index, delta) {
@@ -1828,7 +2216,6 @@
     function removePriority(index) {
       if (prioritiesPending) return;
       priorityList.splice(index, 1);
-      updateGameSelectors();
       renderPriorityList();
       savePriorities(false);
     }
@@ -1841,7 +2228,8 @@
       }
       prioritiesPending = true;
       ++priorityRevision;
-      const controls = [...document.querySelectorAll('#gamePrioritySettings button, #gamePrioritySettings input, #gamePrioritySettings select, button[onclick^="addGameToPriority"]')];
+      renderPrioritySummary();
+      const controls = [...document.querySelectorAll('#miningOrderPanel button, #priorityMode')];
       const disabledStates = controls.map(control => control.disabled);
       controls.forEach(control => { control.disabled = true; });
       const mode = parseInt(document.getElementById('priorityMode').value, 10);
@@ -1936,6 +2324,7 @@
     }
 
     window.addEventListener('DOMContentLoaded', () => {
+      bindGameSearch();
       updateAccountControls();
       applyNativeSettings(nativePreferences || window.nativeSettings);
       loadPriorities();
