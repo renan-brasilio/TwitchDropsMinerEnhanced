@@ -406,7 +406,7 @@ class Channel:
         or having to be updated.
         """
         if self._pending_stream_up is None:
-            self._pending_stream_up = asyncio.create_task(self._online_delay())
+            self._pending_stream_up = self._twitch.create_account_task(self._online_delay())
             self.display()
 
     def set_offline(self):

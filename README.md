@@ -30,13 +30,15 @@
   - **Active Target**: Shows the campaign name as well as the reward. Inventory refresh rebinds the target to fresh campaign data and clears it when the current channel can no longer earn a reward.
   - **Menu Bar Extra (`NSStatusItem`)**: Custom Twitch + pickaxe template icon in your macOS menu bar displaying real-time progress (`[████████░░] 85%`), active streamer, viewer counts, and quick actions upon clicking.
   - **Close to Menu Bar**: Hides the window and removes the Dock icon while mining and menu bar status remain active. Use **Open Dashboard Window** in the status menu to restore the window and Dock icon.
-  - **Window Close Preference**: **Keep Running in Menu Bar When Window Closes** is enabled by default, available in both the app and status menus, and saved across restarts. It applies to the red close button and `Cmd+W`; disable it to quit when closing the window. **Quit** (`Cmd+Q`) always exits the app.
+  - **Window Close Preference**: **Keep running in the menu bar when closing the window** is enabled by default, available in **Settings → Application** and both native menus, and saved across restarts. It applies to the red close button and `Cmd+W`; disable it to quit when closing the window. **Quit** (`Cmd+Q`) always exits the app.
+  - **Settings**: One page for the Twitch account, auto-claim preference, game-priority editor, and native application preferences. Open the **Settings** tab or press `Cmd+,` on macOS. **Application** controls include the close preference and menu bar display style; they appear only in the native app.
 - **⚡ Zero-Lag Decoupled Architecture**:
   - Replaced the blocking 50–100Hz Tkinter polling loop with an async, event-driven `StateHub` that consumes 0.0% idle CPU.
 - **🔐 Modern Authentication & Captcha-Free Login**:
   - **Fixed `KeyError: 'device_code'`**: Switched to Twitch's active `SMARTBOX` client for OAuth device-code activation.
   - **Quick Copy**: Click-to-copy button for the activation code in the app banner and menu bar.
-  - **Direct `auth-token` Cookie Login**: Simply paste your browser's Twitch `auth-token` cookie for instant, 100% captcha-free authentication.
+  - **Direct `auth-token` Cookie Login**: Paste your browser's Twitch `auth-token` cookie under **Settings → Twitch account → Advanced**. The password field clears after saving, and credentials are never returned in status/settings responses.
+  - **Disconnect & Reconnect**: In **Settings → Twitch account**, choose **Disconnect** and confirm to stop mining and remove this app's saved token, cookies, and account-specific data. The app stays disconnected across restarts, even with `TWITCH_AUTH_TOKEN` configured, until you explicitly connect again. Preferences remain saved. **Connect with Twitch** starts device activation; saving a new browser token also reconnects. This is local to the miner—it does not sign out your browser or revoke Twitch authorization. On a remote connection, it disconnects the account on that miner server.
 - **🎮 Visual Game Priorities Manager**:
   - Interactive game selection dropdown combining active campaign games on your account and popular Twitch drop titles.
   - Quick-add chips with active campaign counters (e.g. `+ Overwatch (2)`).
@@ -46,11 +48,11 @@
   - Each campaign shows its start and end dates in your local timezone, plus time remaining.
   - Fully claimed campaigns are hidden. Ended campaigns remain visible only while this account has an eligible, unclaimed reward within Twitch's claim window; only those claimable rewards are listed for ended campaigns.
   - Campaign totals and game-picker counts use the same filtered inventory and update after claims.
-  - Toggle **Auto-claim drops** in **Campaigns & Rewards**. Enabled by default to preserve existing behavior; saved across backend restarts.
+  - Toggle **Automatically claim ready drops** in **Settings → Rewards**, or use the synchronized **Auto-claim drops** shortcut in **Campaigns & Rewards**. Enabled by default to preserve existing behavior; saved across backend restarts.
   - When disabled, rewards remain available for manual claiming using **Claim**. Dependent rewards may require the previous reward to be claimed before progressing.
 - **🐳 Docker & Remote VPS Support**:
   - Headless daemon container ready for deployment on any VPS (via Docker Compose or Dokploy).
-  - **Client-Server Switcher**: Toggle between **Local Daemon** (`http://127.0.0.1:23432`) and **Remote VPS** in Connection Settings (`Cmd+,`).
+  - **Client-Server Switcher**: Toggle between **Local Daemon** (`http://127.0.0.1:23432`) and **Remote VPS** using **Connection Settings...** in the native app or status menu.
   - Optional `API_KEY` Bearer authentication for secure public hosting.
 
 ---
@@ -65,7 +67,7 @@
 3. **Launch:**
    - Open **Twitch Drops Miner Enhanced** from Applications or Spotlight.
    - The app window and menu bar icon will appear.
-   - Authenticate via the Twitch device code prompt or paste your browser's `auth-token` cookie in the **Twitch Authentication** tab.
+   - Authenticate via the Twitch device-code prompt, or open **Settings → Twitch account** to connect or paste a browser `auth-token` under **Advanced**.
 
 ---
 
@@ -89,7 +91,7 @@ You can run the mining engine 24/7 on your VPS inside Docker and connect to it f
 
 3. **Connect from macOS App:**
    - Open `TwitchDropsMinerEnhanced.app` on your Mac.
-   - Press `Cmd+,` or choose **Connection Settings...** from the menu bar.
+   - Choose **Connection Settings...** from the native app or menu bar status menu.
    - Select **Remote VPS / Docker** &rarr; enter your VPS address (e.g. `https://miner.yourdomain.com` or `http://vps-ip:23432`) and API key.
    - The macOS app immediately syncs with your remote miner.
 

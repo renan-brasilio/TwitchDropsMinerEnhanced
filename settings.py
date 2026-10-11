@@ -24,6 +24,7 @@ class SettingsFile(TypedDict):
     available_drops_check: bool
     priority_mode: PriorityMode
     auth_token: str
+    auth_disconnected: bool
     api_port: int
     auto_claim: bool
 
@@ -41,6 +42,7 @@ default_settings: SettingsFile = {
     "available_drops_check": False,
     "priority_mode": PriorityMode.PRIORITY_ONLY,
     "auth_token": "",
+    "auth_disconnected": False,
     "api_port": 23432,
     "auto_claim": True,
 }
@@ -68,6 +70,7 @@ class Settings:
     available_drops_check: bool
     priority_mode: PriorityMode
     auth_token: str
+    auth_disconnected: bool
     api_port: int
     auto_claim: bool
 

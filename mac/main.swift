@@ -33,7 +33,7 @@ enum MenuBarStyle: String, CaseIterable {
     }
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate, WKNavigationDelegate, WKUIDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var mainWindow: NSWindow!
     var webView: WKWebView!
     var statusItem: NSStatusItem!
@@ -162,6 +162,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         let config = WKWebViewConfiguration()
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
         config.websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        config.userContentController.add(self, name: "settings")
 
         webView = WKWebView(frame: mainWindow.contentView!.bounds, configuration: config)
         webView.autoresizingMask = [.width, .height]
@@ -181,6 +182,42 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         hasLoadedDashboard = true
+        publishNativeSettings()
+    }
+
+    func publishNativeSettings() {
+        let settings: [String: Any] = [
+            "keepRunningOnClose": keepRunningOnClose,
+            "menuBarStyle": menuBarStyle.rawValue
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: settings),
+              let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("""
+            window.nativeSettings = \(json);
+            window.dispatchEvent(new CustomEvent('native-settings', {detail: window.nativeSettings}));
+            """, completionHandler: nil)
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "settings", message.frameInfo.isMainFrame,
+              let url = message.frameInfo.request.url,
+              url.scheme == effectiveURL.scheme, url.host == effectiveURL.host,
+              url.port == effectiveURL.port,
+              let settings = message.body as? [String: Any] else { return }
+        if let keepRunning = settings["keepRunningOnClose"] as? Bool {
+            keepRunningOnClose = keepRunning
+        }
+        if let raw = settings["menuBarStyle"] as? String, let style = MenuBarStyle(rawValue: raw) {
+            menuBarStyle = style
+        }
+        setupMainMenu()
+        updateUI()
+        publishNativeSettings()
+    }
+
+    @objc func showSettings() {
+        showMainWindow()
+        webView.evaluateJavaScript("switchTab('settings')", completionHandler: nil)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -231,7 +268,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: "About Twitch Drops Miner Enhanced", action: nil, keyEquivalent: ""))
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(NSMenuItem(title: "Connection Settings...", action: #selector(showConnectionSettings), keyEquivalent: ","))
+        appMenu.addItem(NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ","))
+        appMenu.addItem(NSMenuItem(title: "Connection Settings...", action: #selector(showConnectionSettings), keyEquivalent: ""))
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(NSMenuItem(title: "Close Window", action: #selector(closeMainWindow), keyEquivalent: "w"))
         appMenu.addItem(NSMenuItem(title: "Close to Menu Bar", action: #selector(closeToMenuBar), keyEquivalent: ""))
@@ -275,6 +313,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         keepRunningOnClose.toggle()
         setupMainMenu()
         buildMenu()
+        publishNativeSettings()
     }
 
     @objc func showMainWindowAction() {
@@ -397,7 +436,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
 
         menu.addItem(NSMenuItem.separator())
         // 6. Settings & Config
-        menu.addItem(NSMenuItem(title: "Connection Settings...", action: #selector(showConnectionSettings), keyEquivalent: ","))
+        menu.addItem(NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ","))
+        menu.addItem(NSMenuItem(title: "Connection Settings...", action: #selector(showConnectionSettings), keyEquivalent: ""))
         menu.addItem(makeCloseBehaviorItem())
 
         // 6b. Menu Bar Display Submenu
@@ -411,7 +451,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         let displayMenuItem = NSMenuItem(title: "Menu Bar Display", action: nil, keyEquivalent: "")
         displayMenuItem.submenu = displaySubmenu
         menu.addItem(displayMenuItem)
-        menu.addItem(NSMenuItem(title: "Twitch Auth Token...", action: #selector(promptSetAuthToken), keyEquivalent: "t"))
 
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
@@ -495,6 +534,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
            let style = MenuBarStyle(rawValue: raw) {
             self.menuBarStyle = style
             self.updateUI()
+            self.publishNativeSettings()
         }
     }
 
@@ -788,23 +828,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         }
     }
 
-    @objc func promptSetAuthToken() {
-        let alert = NSAlert()
-        alert.messageText = "Set Twitch Auth Token"
-        alert.informativeText = "Paste your 30-character 'auth-token' cookie from twitch.tv to log in directly:"
-        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
-        input.placeholderString = "abcdef0123456789..."
-        alert.accessoryView = input
-        alert.addButton(withTitle: "Save Token")
-        alert.addButton(withTitle: "Cancel")
-
-        if alert.runModal() == .alertFirstButtonReturn {
-            let token = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !token.isEmpty {
-                sendPostRequest(endpoint: "/api/auth/token", json: ["token": token])
-            }
-        }
-    }
 
     // MARK: - Connection Settings Modal (Local vs Remote VPS)
     @objc func showConnectionSettings() {

@@ -49,7 +49,7 @@ class APIServer:
         self._hub = hub
         self._host = host or os.environ.get("HOST", "127.0.0.1")
         self._port = port
-        self._app = web.Application(middlewares=[auth_middleware])
+        self._app = web.Application(middlewares=[auth_middleware, self._account_middleware])
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
         self._ws_clients: set[web.WebSocketResponse] = set()
@@ -65,6 +65,23 @@ class APIServer:
     def _json_response(self, data: Any, status: int = 200) -> web.Response:
         return web.json_response(data, status=status, headers=self._cors_headers())
 
+    @web.middleware
+    async def _account_middleware(self, request: web.Request, handler):
+        account_control = request.path.startswith("/api/control/") or request.path == "/api/inventory/refresh"
+        if not account_control:
+            return await handler(request)
+        if not self._twitch.account_available:
+            return self._json_response({
+                "error": "Connect a Twitch account before using account controls"
+            }, status=409)
+        try:
+            async with self._twitch.account_operation():
+                return await handler(request)
+        except asyncio.CancelledError:
+            if self._twitch.account_available:
+                raise
+            return self._json_response({"error": "Account changed; operation cancelled"}, status=409)
+
     def _setup_routes(self) -> None:
         # CORS preflight
         self._app.router.add_route("OPTIONS", "/{tail:.*}", self._options_handler)
@@ -78,6 +95,8 @@ class APIServer:
         self._app.router.add_get("/api/settings", self._get_settings)
         self._app.router.add_post("/api/settings", self._post_settings)
         self._app.router.add_post("/api/auth/token", self._post_auth_token)
+        self._app.router.add_post("/api/auth/connect", self._post_auth_connect)
+        self._app.router.add_post("/api/auth/disconnect", self._post_auth_disconnect)
         self._app.router.add_get("/api/logs", self._get_logs)
 
         # Controls
@@ -219,6 +238,12 @@ class APIServer:
         if "auto_claim" in data:
             s.auto_claim = bool(data["auto_claim"])
         s.save(force=True)
+        self._hub.broadcast_event("settings", {
+            "priority": list(s.priority),
+            "exclude": list(s.exclude),
+            "priority_mode": s.priority_mode.value,
+            "auto_claim": s.auto_claim,
+        })
         # Trigger reload of games
         self._twitch.change_state(State.GAMES_UPDATE)
         return self._json_response({"status": "success", "message": "Settings updated"})
@@ -229,18 +254,34 @@ class APIServer:
         except Exception:
             return self._json_response({"error": "Invalid JSON"}, status=400)
 
-        token = data.get("token", "").strip()
+        if not isinstance(data, dict) or not isinstance(data.get("token"), str):
+            return self._json_response({"error": "Token is required"}, status=400)
+        token = data["token"].strip()
         if not token:
             return self._json_response({"error": "Token is required"}, status=400)
 
-        self._twitch.settings.auth_token = token
-        self._twitch.settings.save(force=True)
-        self._hub.add_log("INFO", "Twitch auth token updated from client. Re-authenticating...")
+        try:
+            await self._twitch.connect(token)
+        except Exception:
+            logger.exception("Unable to replace the Twitch account")
+            return self._json_response({"error": "Unable to reconnect the Twitch account"}, status=500)
+        return self._json_response({"status": "success", "message": "Token saved. Connecting..."})
 
-        # Clear existing auth state to trigger re-validation
-        self._twitch._auth_state.invalidate(delete_cookies=True)
-        self._twitch.change_state(State.INVENTORY_FETCH)
-        return self._json_response({"status": "success", "message": "Token saved. Validating session..."})
+    async def _post_auth_connect(self, request: web.Request) -> web.Response:
+        try:
+            await self._twitch.connect()
+        except Exception:
+            logger.exception("Unable to connect the Twitch account")
+            return self._json_response({"error": "Unable to connect the Twitch account"}, status=500)
+        return self._json_response({"status": "success", "message": "Twitch login started"})
+
+    async def _post_auth_disconnect(self, request: web.Request) -> web.Response:
+        try:
+            await self._twitch.disconnect()
+        except Exception:
+            logger.exception("Unable to disconnect the Twitch account")
+            return self._json_response({"error": "Unable to disconnect the Twitch account"}, status=500)
+        return self._json_response({"status": "success", "message": "Disconnected from Twitch"})
 
     async def _get_logs(self, request: web.Request) -> web.Response:
         return self._json_response(list(self._hub.logs))

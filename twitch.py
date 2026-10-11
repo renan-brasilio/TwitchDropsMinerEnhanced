@@ -7,7 +7,7 @@ import logging
 from time import time
 from copy import deepcopy
 from itertools import chain
-from functools import partial
+from functools import partial, wraps
 from collections import abc, deque, OrderedDict
 from datetime import datetime, timedelta, timezone
 from contextlib import suppress, asynccontextmanager
@@ -78,6 +78,14 @@ class SkipExtraJsonDecoder(json.JSONDecoder):
 SAFE_LOADS = lambda s: json.loads(s, cls=SkipExtraJsonDecoder)
 
 
+def account_work(method):
+    @wraps(method)
+    async def owned(self, *args, **kwargs):
+        async with self.account_operation():
+            return await method(self, *args, **kwargs)
+    return owned
+
+
 class _AuthState:
     def __init__(self, twitch: Twitch):
         self._twitch: Twitch = twitch
@@ -98,7 +106,7 @@ class _AuthState:
                 delattr(self, attr)
 
     def invalidate(self, *, delete_cookies: bool = False) -> None:
-        self._delattrs("access_token", "user_id")
+        self._delattrs("access_token", "user_id", "username")
         self._logged_in.clear()
         self._twitch.gui.help._invalidate_button.config(state="disabled")
         if delete_cookies:
@@ -106,11 +114,12 @@ class _AuthState:
             if session is not None:
                 jar = cast(aiohttp.CookieJar, session.cookie_jar)
                 jar.clear()
-                COOKIES_PATH.unlink(missing_ok=True)
+            COOKIES_PATH.unlink(missing_ok=True)
 
     def clear(self) -> None:
         self._delattrs(
             "user_id",
+            "username",
             "device_id",
             "session_id",
             "access_token",
@@ -345,8 +354,9 @@ class _AuthState:
         return headers
 
     async def validate(self):
-        async with self._lock:
-            await self._validate()
+        async with self._twitch.account_operation():
+            async with self._lock:
+                await self._validate()
 
     async def _validate(self):
         if not hasattr(self, "session_id"):
@@ -398,7 +408,7 @@ class _AuthState:
                             cookie["auth-token"] = self.access_token
                             self._twitch._client_type = ClientType.WEB
                             client_info = self._twitch._client_type
-                        elif os.environ.get("TWITCH_AUTH_TOKEN"):
+                        elif getattr(self._twitch, "_use_environment_token", True) and os.environ.get("TWITCH_AUTH_TOKEN"):
                             logger.info("Using auth token from environment")
                             self.access_token = os.environ["TWITCH_AUTH_TOKEN"]
                             cookie["auth-token"] = self.access_token
@@ -447,6 +457,8 @@ class _AuthState:
             else:
                 raise RuntimeError("Login verification failure (step #1)")
             self.user_id = int(validate_response["user_id"])
+            self.username = validate_response.get("login")
+            self._twitch.gui.username = self.username
             cookie["persistent"] = str(self.user_id)
             logger.info(f"Login successful, user ID: {self.user_id}")
             login_form.update(_("gui", "login", "logged_in"), self.user_id)
@@ -485,8 +497,99 @@ class Twitch:
         self.websocket = WebsocketPool(self)
         # Maintenance task
         self._mnt_task: asyncio.Task[None] | None = None
+        # run() owns the process lifetime; these tasks own one account lifetime.
+        self._account_lock = asyncio.Lock()
+        self._account_transitioning = False
+        self._disconnect_pending = 0
+        self._account_tasks: dict[asyncio.Task, int] = {}
+        self._account_run_task: asyncio.Task | None = None
+        self._account_enabled = asyncio.Event()
+        if not getattr(settings, "auth_disconnected", False):
+            self._account_enabled.set()
+
+    @property
+    def account_available(self) -> bool:
+        return (
+            not getattr(self.settings, "auth_disconnected", False)
+            and not self._account_transitioning
+            and not self._disconnect_pending
+            and not self.gui.close_requested
+            and self._state is not State.EXIT
+        )
+
+    @asynccontextmanager
+    async def account_operation(self):
+        if not self.account_available:
+            raise LoginException("Connect a Twitch account before using account controls")
+        task = asyncio.current_task()
+        assert task is not None
+        self._account_tasks[task] = self._account_tasks.get(task, 0) + 1
+        try:
+            yield
+        finally:
+            depth = self._account_tasks.get(task, 1) - 1
+            if depth:
+                self._account_tasks[task] = depth
+            else:
+                self._account_tasks.pop(task, None)
+
+    def create_account_task(self, coro) -> asyncio.Task:
+        task = asyncio.create_task(coro)
+        self._account_tasks[task] = 1
+        task.add_done_callback(self._forget_account_task)
+        if not self.account_available:
+            task.cancel()
+        return task
+
+    def _forget_account_task(self, task: asyncio.Task) -> None:
+        self._account_tasks.pop(task, None)
+
+    async def disconnect(self) -> None:
+        self._disconnect_pending += 1
+        try:
+            async with self._account_lock:
+                self._account_transitioning = True
+                self._account_enabled.clear()
+                try:
+                    # Persist the restart gate before waiting for outstanding requests.
+                    self.settings.auth_disconnected = True
+                    self.settings.auth_token = ""
+                    self.settings.save(force=True)
+                    await self._shutdown_account(delete_cookies=True)
+                    self._state = State.IDLE
+                    self.gui.state_enum = State.IDLE
+                    self.gui.set_status_text("Disconnected from Twitch")
+                finally:
+                    self._account_transitioning = False
+        finally:
+            self._disconnect_pending -= 1
+        self.gui.update_auth_status("Disconnected")
+
+    async def connect(self, token: str | None = None) -> None:
+        async with self._account_lock:
+            if self.gui.close_requested or self._state is State.EXIT:
+                raise LoginException("The application is closing")
+            self._account_transitioning = True
+            self._account_enabled.clear()
+            try:
+                await self._shutdown_account(delete_cookies=True)
+                # OAuth Connect intentionally ignores an environment token; initial
+                # startup still supports it for existing command-line users.
+                self._use_environment_token = False
+                self.settings.auth_token = token or ""
+                self.settings.auth_disconnected = False
+                self.settings.save(force=True)
+                self._state = State.IDLE
+                self.gui.state_enum = State.IDLE
+                self.gui.set_status_text("Connecting to Twitch...")
+            finally:
+                self._account_transitioning = False
+            self._account_enabled.set()
+            self.gui.update_auth_status("Connecting")
 
     async def get_session(self) -> aiohttp.ClientSession:
+        if not self.account_available:
+            raise LoginException("Connect a Twitch account before making requests")
         if (session := self._session) is not None:
             if session.closed:
                 raise RuntimeError("Session is closed")
@@ -494,7 +597,7 @@ class Twitch:
         # load in cookies
         cookie_jar = aiohttp.CookieJar()
         try:
-            if COOKIES_PATH.exists():
+            if not getattr(self.settings, "auth_disconnected", False) and COOKIES_PATH.exists():
                 cookie_jar.load(COOKIES_PATH)
         except Exception:
             # if loading in the cookies file ends up in an error, just ignore it
@@ -522,41 +625,66 @@ class Twitch:
         return self._session
 
     async def shutdown(self) -> None:
+        async with self._account_lock:
+            self._account_transitioning = True
+            self._account_enabled.clear()
+            try:
+                await self._shutdown_account(
+                    delete_cookies=getattr(self.settings, "auth_disconnected", False)
+                )
+            finally:
+                self._account_transitioning = False
+
+    async def _shutdown_account(self, *, delete_cookies: bool) -> None:
         start_time = time()
-        self.stop_watching()
-        if self._watching_task is not None:
-            self._watching_task.cancel()
-            self._watching_task = None
-        if self._mnt_task is not None:
-            self._mnt_task.cancel()
-            self._mnt_task = None
-        # stop websocket, close session and save cookies
+        # Stop new work first, then join every account task before clearing state.
+        tasks = set(self._account_tasks)
+        tasks.update(
+            task for task in (self._account_run_task, self._watching_task, self._mnt_task)
+            if task is not None
+        )
+        if self._qgl_limiter._reset_task is not None:
+            tasks.add(self._qgl_limiter._reset_task)
+        tasks.discard(asyncio.current_task())
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._qgl_limiter = RateLimiter(capacity=5, window=1)
+        self._account_run_task = None
+        self._watching_task = None
+        self._mnt_task = None
         await self.websocket.stop(clear_topics=True)
+        # Discard stopped sockets and their submitted topics on account changes.
+        self.websocket = WebsocketPool(self)
+        self.stop_watching()
+        if delete_cookies:
+            self._auth_state.invalidate(delete_cookies=True)
         if self._session is not None:
-            cookie_jar = cast(aiohttp.CookieJar, self._session.cookie_jar)
-            # clear empty cookie entries off the cookies file before saving
-            # NOTE: Unfortunately, aiohttp provides no easy way of clearing empty cookies,
-            # so we need to access the private '_cookies' attribute for this.
-            for cookie_key, cookie in list(cookie_jar._cookies.items()):
-                if not cookie:
-                    del cookie_jar._cookies[cookie_key]
-            cookie_jar.save(COOKIES_PATH)
+            if not delete_cookies:
+                cookie_jar = cast(aiohttp.CookieJar, self._session.cookie_jar)
+                for cookie_key, cookie in list(cookie_jar._cookies.items()):
+                    if not cookie:
+                        del cookie_jar._cookies[cookie_key]
+                cookie_jar.save(COOKIES_PATH)
             await self._session.close()
             self._session = None
         self._drops.clear()
+        self._campaigns.clear()
         self.channels.clear()
         self.inventory.clear()
         self._auth_state.clear()
         self.wanted_games.clear()
         self._mnt_triggers.clear()
-        # wait at least half a second + whatever it takes to complete the closing
-        # this allows aiohttp to safely close the session
-        await asyncio.sleep(start_time + 0.5 - time())
+        self.gui.clear_account()
+        await asyncio.sleep(max(0, start_time + 0.5 - time()))
 
     def wait_until_login(self) -> abc.Coroutine[Any, Any, Literal[True]]:
         return self._auth_state._logged_in.wait()
 
     def change_state(self, state: State) -> None:
+        if state is not State.EXIT and not self.account_available:
+            return
         if self._state is not State.EXIT:
             self._state = state
             if hasattr(self.gui, "state_enum"):
@@ -574,6 +702,7 @@ class Twitch:
         usually by the console or application window being closed.
         """
         self.change_state(State.EXIT)
+        self.gui.close()
 
     def prevent_close(self):
         """
@@ -621,16 +750,29 @@ class Twitch:
             with open(DUMP_PATH, 'w', encoding="utf8"):
                 # replace the existing file with an empty one
                 pass
-        while True:
-            try:
-                await self._run()
-                break
-            except ReloadRequest:
-                await self.shutdown()
-            except ExitRequest:
-                break
-            except aiohttp.ContentTypeError as exc:
-                raise RequestException(_("login", "unexpected_content")) from exc
+        try:
+            while not self.gui.close_requested and self._state is not State.EXIT:
+                try:
+                    await self.gui.coro_unless_closed(self._account_enabled.wait())
+                    if not self.account_available:
+                        continue
+                    task = self.create_account_task(self._run())
+                    self._account_run_task = task
+                    await self.gui.coro_unless_closed(asyncio.wait([task]))
+                    if task.cancelled():
+                        # Only the account child ended; run() keeps the API alive.
+                        continue
+                    await task
+                    break
+                except ReloadRequest:
+                    await self.shutdown()
+                    self._account_enabled.set()
+                except ExitRequest:
+                    break
+                except aiohttp.ContentTypeError as exc:
+                    raise RequestException(_("login", "unexpected_content")) from exc
+        finally:
+            await self.shutdown()
 
     async def _run(self):
         """
@@ -647,7 +789,7 @@ class Twitch:
         # NOTE: watch task is explicitly restarted on each new run
         if self._watching_task is not None:
             self._watching_task.cancel()
-        self._watching_task = asyncio.create_task(self._watch_loop())
+        self._watching_task = self.create_account_task(self._watch_loop())
         # Add default topics
         self.websocket.add_topics([
             WebsocketTopic("User", "Drops", auth_state.user_id, self.process_drops),
@@ -1277,6 +1419,7 @@ class Twitch:
                     )
                 )
 
+    @account_work
     async def get_auth(self) -> _AuthState:
         await self._auth_state.validate()
         return self._auth_state
@@ -1285,11 +1428,19 @@ class Twitch:
     async def request(
         self, method: str, url: URL | str, *, invalidate_after: datetime | None = None, **kwargs
     ) -> abc.AsyncIterator[aiohttp.ClientResponse]:
+        async with self.account_operation():
+            async with self._request(method, url, invalidate_after=invalidate_after, **kwargs) as response:
+                yield response
+
+    @asynccontextmanager
+    async def _request(
+        self, method: str, url: URL | str, *, invalidate_after: datetime | None = None, **kwargs
+    ) -> abc.AsyncIterator[aiohttp.ClientResponse]:
         session = await self.get_session()
         method = method.upper()
         if self.settings.proxy and "proxy" not in kwargs:
             kwargs["proxy"] = self.settings.proxy
-        logger.debug(f"Request: ({method=}, {url=}, {kwargs=})")
+        logger.debug(f"Request: ({method=}, {url=})")
         session_timeout = timedelta(seconds=session.timeout.total or 0)
         backoff = ExponentialBackoff(maximum=3*60)
         for delay in backoff:
@@ -1307,7 +1458,7 @@ class Twitch:
                     session.request(method, url, **kwargs)
                 )
                 assert response is not None
-                logger.debug(f"Response: {response.status}: {response}")
+                logger.debug(f"Response status: {response.status}")
                 if response.status < 500:
                     # pre-read the response to avoid getting errors outside of the context manager
                     raw_response = await response.read()  # noqa
@@ -1457,6 +1608,7 @@ class Twitch:
         }
         return self._merge_data(campaign_ids, fetched_data)
 
+    @account_work
     async def fetch_inventory(self) -> None:
         previous_status = self.gui.status_text
         status_update = self.gui.status.update
@@ -1482,7 +1634,7 @@ class Twitch:
         # fetch detailed data for each campaign, in chunks
         status_update(_("gui", "status", "fetching_campaigns"))
         fetch_campaigns_tasks: list[asyncio.Task[Any]] = [
-            asyncio.create_task(self.fetch_campaigns(campaigns_chunk))
+            self.create_account_task(self.fetch_campaigns(campaigns_chunk))
             for campaigns_chunk in chunk(available_campaigns.items(), 20)
         ]
         try:
@@ -1553,7 +1705,7 @@ class Twitch:
             _("gui", "status", "adding_campaigns").format(counter=f"(0/{len(campaigns)})")
         )
         add_campaign_tasks: list[asyncio.Task[None]] = [
-            asyncio.create_task(self.gui.inv.add_campaign(campaign))
+            self.create_account_task(self.gui.inv.add_campaign(campaign))
             for campaign in campaigns
         ]
         try:
@@ -1580,7 +1732,7 @@ class Twitch:
         # NOTE: maintenance task is restarted at the end of each inventory fetch
         if self._mnt_task is not None and not self._mnt_task.done():
             self._mnt_task.cancel()
-        self._mnt_task = asyncio.create_task(self._maintenance_task())
+        self._mnt_task = self.create_account_task(self._maintenance_task())
         watching = self.watching_channel.get_with_default(None)
         if watching is not None:
             if self.can_watch(watching):
@@ -1636,6 +1788,7 @@ class Twitch:
             ]
         return []
 
+    @account_work
     async def bulk_check_online(self, channels: abc.Iterable[Channel]):
         """
         Utilize batch GQL requests to check ONLINE status for a lot of channels at once.
@@ -1648,7 +1801,7 @@ class Twitch:
             # NOTE: Have to do this here, becase "channels" can be any iterable
             return
         stream_gql_tasks: list[asyncio.Task[list[JsonType]]] = [
-            asyncio.create_task(self.gql_request(stream_gql_chunk))
+            self.create_account_task(self.gql_request(stream_gql_chunk))
             for stream_gql_chunk in chunk(stream_gql_ops, 20)
         ]
         try:
@@ -1672,7 +1825,7 @@ class Twitch:
                 if channel_data["stream"] is not None  # only do this for ONLINE channels
             ]
             available_gql_tasks: list[asyncio.Task[list[JsonType]]] = [
-                asyncio.create_task(self.gql_request(available_gql_chunk))
+                self.create_account_task(self.gql_request(available_gql_chunk))
                 for available_gql_chunk in chunk(available_gql_ops, 20)
             ]
             try:

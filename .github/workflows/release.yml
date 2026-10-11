@@ -30,7 +30,7 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt Pillow truststore
 
-      - name: Run campaign and channel regression tests
+      - name: Run regression tests
         run: python -m unittest discover -s tests -v
 
       - name: Ensure executable permissions

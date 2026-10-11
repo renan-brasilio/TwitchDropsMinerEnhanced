@@ -110,7 +110,7 @@ class ProgressHub(_HubComponent):
         if self._timer_task is not None and not self._timer_task.done():
             self._timer_task.cancel()
         self._seconds = 60 if not subone else 59
-        self._timer_task = asyncio.create_task(self._countdown_loop())
+        self._timer_task = self._hub._twitch.create_account_task(self._countdown_loop())
 
     async def _countdown_loop(self) -> None:
         try:
@@ -197,7 +197,10 @@ class StateHub:
 
         # In-memory Application State
         self.state_enum: State = State.IDLE
-        self.status_text: str = "Initializing..."
+        self.status_text: str = (
+            "Disconnected from Twitch" if getattr(twitch.settings, "auth_disconnected", False)
+            else "Initializing..."
+        )
         self.tray_icon: str = "idle"
         self.is_logged_in: bool = False
         self.user_id: int | None = None
@@ -243,17 +246,18 @@ class StateHub:
         await self._closed.wait()
 
     async def coro_unless_closed(self, coro: Any) -> Any:
-        if self._close_requested.is_set():
-            from exceptions import ExitRequest
-            raise ExitRequest()
         tasks = [asyncio.ensure_future(coro), asyncio.ensure_future(self._close_requested.wait())]
-        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        for task in pending:
-            task.cancel()
-        if self._close_requested.is_set():
-            from exceptions import ExitRequest
-            raise ExitRequest()
-        return await next(iter(done))
+        try:
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            if self._close_requested.is_set():
+                from exceptions import ExitRequest
+                raise ExitRequest()
+            return await next(iter(done))
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
     def grab_attention(self, sound: bool = False) -> None:
         pass
 
@@ -317,7 +321,26 @@ class StateHub:
             "status": status_text,
             "logged_in": self.is_logged_in,
             "user_id": user_id,
+            "username": self.username,
+            "auth_disconnected": getattr(self._twitch.settings, "auth_disconnected", False),
+            "auth_pending": self._twitch._account_transitioning or bool(self._twitch._disconnect_pending),
+            "device_code": self.device_code_data,
         })
+
+    def clear_account(self) -> None:
+        self.username = None
+        self.device_code_data = None
+        self.login.code_entered.clear()
+        self.clear_drop()
+        self.channels.clear()
+        self.channels.clear_watching()
+        self.clear_inventory()
+        self.set_games(set())
+        self.websockets_status.clear()
+        self.broadcast_event("websockets", [])
+        self.update_auth_status("Disconnected" if getattr(
+            self._twitch.settings, "auth_disconnected", False
+        ) else "Not connected")
 
     def update_countdown_seconds(self, seconds: int) -> None:
         if self.active_drop:
@@ -537,6 +560,9 @@ class StateHub:
             "tray_icon": self.tray_icon,
             "is_logged_in": self.is_logged_in,
             "user_id": self.user_id,
+            "username": self.username,
+            "auth_disconnected": getattr(self._twitch.settings, "auth_disconnected", False),
+            "auth_pending": self._twitch._account_transitioning or bool(self._twitch._disconnect_pending),
             "active_drop": self.active_drop,
             "active_channel": self.active_channel,
             "device_code": self.device_code_data,

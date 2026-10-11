@@ -642,6 +642,7 @@
         <button class="btn btn-primary" onclick="openActivation()">Open Activation Page</button>
       </div>
   </div>
+  </div>
 
   <div class="container">
 
@@ -707,17 +708,13 @@
         <svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
         Campaigns & Rewards
       </button>
-      <button class="tab-item" onclick="switchTab('priorities')">
-        <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-        Game Priorities
+      <button class="tab-item" onclick="switchTab('settings')">
+        <svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="m9 3-1 3-3 1-2 3 2 2-1 3 3 2 3-1 2 2 3-2 1-3 3-1-1-3-3-1-1-3Z"/></svg>
+        Settings
       </button>
       <button class="tab-item" onclick="switchTab('console')">
         <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
         System Console
-      </button>
-      <button class="tab-item" onclick="switchTab('auth')">
-        <svg viewBox="0 0 24 24"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-        Twitch Authentication
       </button>
     </div>
 
@@ -755,7 +752,7 @@
           <div class="panel-title">Active Drops Campaigns</div>
           <div style="display: flex; gap: 12px; align-items: center;">
             <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); cursor: pointer; user-select: none;">
-              <input type="checkbox" id="autoClaimToggle" checked onchange="toggleAutoClaim(this.checked)" style="accent-color: var(--accent); cursor: pointer;">
+              <input type="checkbox" id="autoClaimToggle" disabled onchange="toggleAutoClaim(this.checked)" style="accent-color: var(--accent); cursor: pointer;">
               Auto-claim drops
             </label>
             <button class="btn" id="btnRefreshCampaigns" onclick="fetchInventory()">
@@ -770,17 +767,61 @@
       </div>
     </div>
 
-    <!-- TAB: PRIORITIES -->
-    <div id="tab-priorities" style="display: none;">
+    <!-- TAB: SETTINGS -->
+    <div id="tab-settings" style="display: none;">
       <div class="panel">
         <div class="panel-header">
-          <div class="panel-title">Game Priorities</div>
+          <h2 class="panel-title">Settings</h2>
+        </div>
+        <section aria-labelledby="accountHeading">
+          <h3 class="panel-title" id="accountHeading">Twitch account</h3>
+          <p id="accountStatus" role="status" style="margin: 8px 0; color: var(--text-muted);">Checking account...</p>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            <button class="btn btn-primary" id="btnConnect" onclick="connectAccount()" disabled>Connect with Twitch</button>
+            <button class="btn" id="btnDisconnect" onclick="confirmDisconnect(true)" disabled>Disconnect</button>
+          </div>
+          <p class="form-help">Disconnect removes this app's saved Twitch login and stops mining. It does not log you out of your browser or revoke Twitch access.</p>
+          <div id="disconnectConfirmation" style="display: none; margin-top: 12px;" role="group" aria-label="Confirm local account disconnect">
+            <p style="margin-bottom: 8px;">Disconnect this Twitch account from the app?</p>
+            <button class="btn btn-primary" id="btnConfirmDisconnect" onclick="disconnectAccount()">Disconnect account</button>
+            <button class="btn" id="btnCancelDisconnect" onclick="confirmDisconnect(false)">Cancel</button>
+          </div>
+          <p id="accountError" role="alert" style="color: var(--status-error); margin-top: 8px;"></p>
+          <details style="margin-top: 16px;">
+            <summary style="cursor: pointer; color: var(--text-muted);">Advanced: authenticate with a browser token</summary>
+            <div class="instructions-card" style="margin-top: 12px;">
+              <strong>Direct browser token authentication:</strong>
+              <ol>
+                <li>Sign in to <a href="https://www.twitch.tv" target="_blank" rel="noopener noreferrer" style="color: var(--text); text-decoration: underline;">twitch.tv</a> in your browser.</li>
+                <li>Open Developer Tools (Cmd+Option+I on Mac, or F12).</li>
+                <li>Select <strong>Application</strong> (Chrome/Edge) or <strong>Storage</strong> (Safari/Firefox) &rarr; <strong>Cookies</strong> &rarr; <code>https://www.twitch.tv</code>.</li>
+                <li>Copy the <code>auth-token</code> cookie value. Treat it like a password; never share it.</li>
+              </ol>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="authTokenInput">Twitch auth token:</label>
+              <input type="password" class="form-input" id="authTokenInput" autocomplete="off" spellcheck="false" autocapitalize="none" placeholder="Paste your auth-token..." disabled>
+            </div>
+            <button class="btn" id="btnSaveToken" onclick="submitAuthToken()" disabled>Save token & connect</button>
+          </details>
+        </section>
+        <section aria-labelledby="rewardsHeading" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border);">
+          <h3 class="panel-title" id="rewardsHeading">Rewards</h3>
+          <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer;">
+            <input type="checkbox" id="settingsAutoClaimToggle" onchange="toggleAutoClaim(this.checked)" disabled style="accent-color: var(--accent);">
+            Automatically claim ready drops
+          </label>
+          <p class="form-help">This is the same preference as the auto-claim shortcut in Campaigns &amp; Rewards.</p>
+        </section>
+        <section id="gamePrioritySettings" aria-labelledby="prioritiesHeading" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border);">
+        <div class="panel-header">
+          <h3 class="panel-title" id="prioritiesHeading">Game priorities</h3>
           <button class="btn btn-primary" onclick="savePriorities()">Save Configuration</button>
         </div>
 
         <!-- Game Selection Dropdown & Custom Field -->
         <div class="form-group">
-          <label class="form-label">Select Game to Prioritize:</label>
+          <label class="form-label" for="gameSelectDropdown">Select Game to Prioritize:</label>
           <div style="display: flex; gap: 8px; margin-bottom: 8px;">
             <select class="form-input" id="gameSelectDropdown" style="flex: 1;" onchange="onGameDropdownChange()">
               <option value="">-- Choose game from campaigns or catalog --</option>
@@ -788,6 +829,7 @@
             <button class="btn btn-primary" onclick="addSelectedGame()">Add Game</button>
           </div>
           <div style="display: flex; gap: 8px;">
+            <label for="customGameInput" class="form-label" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);">Custom game title</label>
             <input type="text" class="form-input" id="customGameInput" placeholder="Or enter any custom game title..." style="flex: 1;">
             <button class="btn" onclick="addCustomGame()">Add Custom</button>
           </div>
@@ -810,7 +852,7 @@
 
         <!-- Priority Mode -->
         <div class="form-group" style="padding-top: 12px; border-top: 1px solid var(--border);">
-          <label class="form-label">Priority Mode:</label>
+          <label class="form-label" for="priorityMode">Priority Mode:</label>
           <select class="form-input" id="priorityMode" onchange="savePriorities(false)">
             <option value="0">Priority Games Only (Default)</option>
             <option value="1">Ending Soonest</option>
@@ -818,6 +860,25 @@
           </select>
           <div class="form-help">"Priority Games Only" mines strictly your prioritized titles. "Ending Soonest" mines prioritized titles first, then campaigns ending soonest.</div>
         </div>
+        </section>
+        <section id="nativeApplicationSettings" aria-labelledby="applicationHeading" style="display: none; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border);">
+          <h3 class="panel-title" id="applicationHeading">Application</h3>
+          <label style="display: flex; align-items: center; gap: 8px; margin: 12px 0; cursor: pointer;">
+            <input type="checkbox" id="keepRunningToggle" onchange="saveNativeSetting('keepRunningOnClose', this.checked)" style="accent-color: var(--accent);">
+            Keep running in the menu bar when closing the window
+          </label>
+          <div class="form-group">
+            <label class="form-label" for="menuBarStyle">Menu bar display:</label>
+            <select class="form-input" id="menuBarStyle" onchange="saveNativeSetting('menuBarStyle', this.value)">
+              <option value="iconOnly">Icon only</option>
+              <option value="currentMining">Current mining</option>
+              <option value="timeLeft">Time left</option>
+              <option value="percentage">Percentage</option>
+              <option value="full">Full details</option>
+            </select>
+          </div>
+          <p id="nativeSettingsStatus" role="status" class="form-help"></p>
+        </section>
       </div>
     </div>
 
@@ -832,28 +893,6 @@
       </div>
     </div>
 
-    <!-- TAB: AUTH -->
-    <div id="tab-auth" style="display: none;">
-      <div class="panel">
-        <div class="panel-header">
-          <div class="panel-title">Twitch Session & Token</div>
-        </div>
-        <div class="instructions-card">
-          <strong>Direct Browser Token Authentication:</strong>
-          <ol>
-            <li>Sign in to <a href="https://www.twitch.tv" target="_blank" style="color: var(--text); text-decoration: underline;">twitch.tv</a> in your browser.</li>
-            <li>Open Developer Tools (Cmd+Option+I on Mac, or F12).</li>
-            <li>Select <strong>Application</strong> (Chrome/Edge) or <strong>Storage</strong> (Safari/Firefox) &rarr; <strong>Cookies</strong> &rarr; <code>https://www.twitch.tv</code>.</li>
-            <li>Copy the value of the <code>auth-token</code> cookie and paste it below.</li>
-          </ol>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Twitch Auth Token:</label>
-          <input type="password" class="form-input" id="authTokenInput" placeholder="Paste your 30-character auth-token...">
-        </div>
-        <button class="btn btn-primary" onclick="submitAuthToken()">Save & Authenticate</button>
-      </div>
-    </div>
 
   </div>
 
@@ -862,6 +901,18 @@
     let cachedState = {};
     const urlParams = new URLSearchParams(window.location.search);
     const apiKey = urlParams.get('key') || '';
+    let authPending = '';
+    let authRevision = 0;
+    let pollSequence = 0;
+    let controlPending = false;
+    let autoClaimPending = false;
+    let savedAutoClaim = null;
+    let settingsRevision = 0;
+    let prioritiesPending = false;
+    let prioritiesLoaded = false;
+    let priorityRevision = 0;
+    let nativePreferences = null;
+    const nativePending = {};
 
     function showToast(message, type = 'info') {
       let toast = document.getElementById('toastNotice');
@@ -894,6 +945,178 @@
       }
       return fetch(finalUrl, options);
     }
+
+    async function responseData(response) {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || data.message || `HTTP ${response.status}`);
+      return data;
+    }
+
+    function updateAccountControls() {
+      const known = typeof cachedState.auth_disconnected === 'boolean';
+      const busy = Boolean(authPending || cachedState.auth_pending);
+      const connected = cachedState.is_logged_in && !cachedState.auth_disconnected;
+      const activation = !cachedState.auth_disconnected && !connected && cachedState.device_code?.code;
+      let label = 'Checking account...';
+      if (authPending === 'disconnect') label = 'Disconnecting account...';
+      else if (authPending) label = 'Connecting to Twitch...';
+      else if (busy) label = 'Updating Twitch account...';
+      else if (cachedState.auth_disconnected) label = 'Disconnected. Connect explicitly to resume mining.';
+      else if (connected) label = `Connected${cachedState.username ? ' as ' + cachedState.username : (cachedState.user_id ? ' — user ' + cachedState.user_id : '')}`;
+      else if (activation) label = 'Connecting — complete Twitch device activation using the code above.';
+      else if (known) label = 'Not connected. Waiting for Twitch authentication.';
+      document.getElementById('accountStatus').textContent = label;
+      document.getElementById('statAuth').textContent = connected ? 'Connected' : (activation ? 'Activation Required' : 'Not Connected');
+      document.getElementById('statAuth').style.color = connected ? 'var(--status-active)' : 'var(--status-idle)';
+      document.getElementById('btnConnect').disabled = !known || busy || connected || Boolean(activation);
+      document.getElementById('btnConnect').textContent = authPending === 'connect' ? 'Connecting...' : 'Connect with Twitch';
+      document.getElementById('btnDisconnect').disabled = !known || busy || cachedState.auth_disconnected;
+      document.getElementById('btnConfirmDisconnect').disabled = busy;
+      document.getElementById('btnCancelDisconnect').disabled = busy;
+      document.getElementById('btnSaveToken').disabled = !known || busy;
+      document.getElementById('authTokenInput').disabled = !known || busy;
+      document.getElementById('btnSaveToken').textContent = authPending === 'token' ? 'Connecting...' : 'Save token & connect';
+      if (cachedState.auth_disconnected) document.getElementById('disconnectConfirmation').style.display = 'none';
+      updateControlButtons();
+    }
+
+    function updateControlButtons() {
+      const blocked = Boolean(authPending || cachedState.auth_pending) || !cachedState.is_logged_in || cachedState.auth_disconnected || controlPending;
+      document.querySelectorAll('button[onclick^="controlAction"], button[onclick^="claimDrops"], button[onclick^="fetchInventory"]').forEach(btn => {
+        btn.disabled = blocked;
+      });
+      document.querySelectorAll('button[onclick^="watchChannel"]').forEach(btn => {
+        btn.disabled = blocked || btn.dataset.online !== 'true';
+      });
+    }
+
+    function requireAccount() {
+      if (authPending || cachedState.auth_pending || !cachedState.is_logged_in || cachedState.auth_disconnected) {
+        showToast('Connect a Twitch account in Settings first.', 'error');
+        return false;
+      }
+      return !controlPending;
+    }
+
+    function confirmDisconnect(show) {
+      if (authPending || cachedState.auth_pending) return;
+      document.getElementById('disconnectConfirmation').style.display = show ? 'block' : 'none';
+      document.getElementById(show ? 'btnConfirmDisconnect' : 'btnDisconnect').focus();
+    }
+
+    async function changeAccount(action, body) {
+      if (authPending || cachedState.auth_pending) return;
+      authPending = action;
+      ++authRevision;
+      document.getElementById('accountError').textContent = '';
+      renderActivation(null);
+      updateAccountControls();
+      try {
+        const response = await apiFetch('/api/auth/' + action, {
+          method: 'POST',
+          ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {})
+        });
+        // Token endpoint errors must not echo a submitted credential into the page.
+        if (action === 'token' && !response.ok) throw new Error(`Token authentication failed (HTTP ${response.status})`);
+        await responseData(response);
+        if (action === 'disconnect' || action === 'token') document.getElementById('authTokenInput').value = '';
+        if (action === 'disconnect') {
+          cachedState = { ...cachedState, auth_disconnected: true, is_logged_in: false, user_id: null, username: null, device_code: null, channels: [], inventory: [], active_drop: null, active_channel: null, campaigns_count: 0 };
+          cachedCampaignCounts = {};
+          applyState(cachedState);
+          document.getElementById('disconnectConfirmation').style.display = 'none';
+        } else {
+          cachedState = { ...cachedState, auth_disconnected: false, is_logged_in: false, user_id: null, username: null, device_code: null };
+        }
+        showToast(action === 'disconnect' ? 'Disconnected from this app.' : 'Twitch connection started.', 'success');
+      } catch (err) {
+        const message = action === 'token' ? 'Unable to authenticate token. Check the token and try again.' : err.message;
+        document.getElementById('accountError').textContent = message;
+        showToast(message, 'error');
+      } finally {
+        authPending = '';
+        ++authRevision;
+        updateAccountControls();
+        await pollFullState();
+      }
+    }
+
+    function connectAccount() {
+      return changeAccount('connect');
+    }
+
+    function disconnectAccount() {
+      return changeAccount('disconnect');
+    }
+
+    function syncAutoClaim(enabled) {
+      if (typeof enabled !== 'boolean') return;
+      savedAutoClaim = enabled;
+      if (autoClaimPending) return;
+      ['autoClaimToggle', 'settingsAutoClaimToggle'].forEach(id => {
+        const toggle = document.getElementById(id);
+        toggle.checked = enabled;
+        toggle.disabled = false;
+      });
+    }
+
+    function applyNativeSettings(settings, acknowledged = false) {
+      if (!settings || typeof settings.keepRunningOnClose !== 'boolean' || !['iconOnly', 'currentMining', 'timeLeft', 'percentage', 'full'].includes(settings.menuBarStyle)) return;
+      nativePreferences = { keepRunningOnClose: settings.keepRunningOnClose, menuBarStyle: settings.menuBarStyle };
+      if (!document.getElementById('nativeApplicationSettings')) return;
+      if (!acknowledged && Object.keys(nativePending).length) return;
+      document.getElementById('nativeApplicationSettings').style.display = 'block';
+      document.getElementById('keepRunningToggle').checked = settings.keepRunningOnClose;
+      document.getElementById('menuBarStyle').value = settings.menuBarStyle;
+      if (acknowledged) {
+        for (const key of Object.keys(nativePending)) {
+          clearTimeout(nativePending[key]);
+          delete nativePending[key];
+        }
+      }
+      document.getElementById('keepRunningToggle').disabled = false;
+      document.getElementById('menuBarStyle').disabled = false;
+      document.getElementById('nativeSettingsStatus').textContent = '';
+    }
+
+    function saveNativeSetting(key, value) {
+      const control = document.getElementById(key === 'keepRunningOnClose' ? 'keepRunningToggle' : 'menuBarStyle');
+      if (!nativePreferences || Object.keys(nativePending).length) return;
+      const status = document.getElementById('nativeSettingsStatus');
+      const restore = () => {
+        if (key === 'keepRunningOnClose') control.checked = nativePreferences.keepRunningOnClose;
+        else control.value = nativePreferences.menuBarStyle;
+      };
+      // Keep the acknowledged value visible until the native host confirms the change.
+      restore();
+      document.getElementById('keepRunningToggle').disabled = true;
+      document.getElementById('menuBarStyle').disabled = true;
+      status.textContent = 'Saving application preference...';
+      try {
+        const handler = window.webkit?.messageHandlers?.settings;
+        if (!handler) throw new Error('Native settings are unavailable.');
+        nativePending[key] = setTimeout(() => {
+          delete nativePending[key];
+          document.getElementById('keepRunningToggle').disabled = false;
+          document.getElementById('menuBarStyle').disabled = false;
+          restore();
+          status.textContent = 'The app did not acknowledge this preference. Try again.';
+          showToast(status.textContent, 'error');
+        }, 5000);
+        handler.postMessage({ [key]: value });
+      } catch (err) {
+        clearTimeout(nativePending[key]);
+        delete nativePending[key];
+        document.getElementById('keepRunningToggle').disabled = false;
+        document.getElementById('menuBarStyle').disabled = false;
+        status.textContent = err.message;
+        showToast(err.message, 'error');
+      }
+    }
+
+    window.addEventListener('native-settings', event => {
+      applyNativeSettings(event.detail, true);
+    });
 
     function initWebSocket() {
       try {
@@ -930,6 +1153,8 @@
 
     function handleEvent(eventType, data) {
       if (eventType === 'init') {
+        if (authPending) return;
+        ++authRevision;
         cachedState = data;
         applyState(data);
       } else if (eventType === 'status') {
@@ -947,7 +1172,27 @@
       } else if (eventType === 'log') {
         appendTerminalLog(data);
       } else if (eventType === 'auth_code') {
-        renderActivation(data);
+        ++authRevision;
+        cachedState.device_code = data;
+        renderActivation(authPending || cachedState.auth_disconnected || cachedState.is_logged_in ? null : data);
+        updateAccountControls();
+      } else if (eventType === 'auth') {
+        ++authRevision;
+        cachedState = {
+          ...cachedState,
+          ...(typeof data.auth_disconnected === 'boolean' ? { auth_disconnected: data.auth_disconnected } : {}),
+          ...(typeof data.auth_pending === 'boolean' ? { auth_pending: data.auth_pending } : {}),
+          is_logged_in: data.is_logged_in ?? data.logged_in ?? false,
+          user_id: data.user_id ?? null,
+          username: data.username ?? null,
+          device_code: data.device_code ?? null
+        };
+        renderActivation(authPending || cachedState.auth_disconnected || cachedState.is_logged_in ? null : cachedState.device_code);
+        updateAccountControls();
+      } else if (eventType === 'settings') {
+        ++settingsRevision;
+        cachedState.settings = { ...cachedState.settings, ...data };
+        syncAutoClaim(data.auto_claim);
       } else if (eventType === 'countdown') {
         if (cachedState.active_drop) {
           cachedState.active_drop.seconds = data.seconds;
@@ -963,7 +1208,7 @@
       renderStreamer(state.active_channel);
       renderChannels(state.channels || []);
       renderInventory(state.inventory || []);
-      renderActivation(state.device_code);
+      renderActivation(authPending || state.auth_disconnected || state.is_logged_in ? null : state.device_code);
 
       document.getElementById('statChannels').innerText = (state.channels || []).length;
       document.getElementById('statCampaigns').innerText = state.campaigns_count ?? (state.inventory || []).length;
@@ -973,14 +1218,8 @@
         topicCount += (wsItem.topics || 0);
       });
       document.getElementById('statTopics').innerText = topicCount;
-      document.getElementById('statAuth').innerText = state.is_logged_in ? 'Connected' : 'Not Connected';
-      document.getElementById('statAuth').style.color = state.is_logged_in ? 'var(--status-active)' : 'var(--status-idle)';
-
-      // Sync auto-claim toggle
-      if (state.settings && typeof state.settings.auto_claim === 'boolean') {
-        const toggle = document.getElementById('autoClaimToggle');
-        if (toggle) toggle.checked = state.settings.auto_claim;
-      }
+      updateAccountControls();
+      syncAutoClaim(state.settings?.auto_claim);
     }
 
     function updateStatusBadge(label, stateClass) {
@@ -1042,10 +1281,11 @@
           <td><strong>${ch.name}</strong></td>
           <td>${ch.game || '-'}</td>
           <td class="mono">${ch.viewers ? ch.viewers.toLocaleString() : 0}</td>
-          <td><button class="btn" style="padding: 3px 8px; font-size: 11px;" onclick="watchChannel(${ch.id})" ${ch.online ? '' : 'disabled'}>Watch</button></td>
+          <td><button class="btn" style="padding: 3px 8px; font-size: 11px;" onclick="watchChannel(${ch.id})" data-online="${Boolean(ch.online)}" ${ch.online ? '' : 'disabled'}>Watch</button></td>
         </tr>
       `).join('');
       document.getElementById('statChannels').innerText = channels.length;
+      updateControlButtons();
     }
 
     function formatCampaignDate(isoStr) {
@@ -1111,6 +1351,7 @@
         </div>
       `).join('');
       document.getElementById('statCampaigns').innerText = campaigns.length;
+      updateControlButtons();
     }
 
     function appendTerminalLog(entry) {
@@ -1138,6 +1379,8 @@
         banner.classList.add('visible');
       } else {
         banner.classList.remove('visible');
+        document.getElementById('activationCode').textContent = '';
+        document.getElementById('activationLink').href = 'https://www.twitch.tv/activate';
       }
     }
     function copyActivationCode() {
@@ -1183,7 +1426,7 @@
     }
 
     function switchTab(tabId) {
-      const allTabs = ['channels', 'campaigns', 'priorities', 'console', 'auth'];
+      const allTabs = ['channels', 'campaigns', 'settings', 'console'];
       allTabs.forEach(id => {
         const el = document.getElementById('tab-' + id);
         if (el) el.style.display = (id === tabId) ? 'block' : 'none';
@@ -1191,18 +1434,37 @@
       document.querySelectorAll('.tab-item').forEach((btn, index) => {
         btn.classList.toggle('active', allTabs[index] === tabId);
       });
-      if (tabId === 'priorities') loadPriorities();
+      document.querySelectorAll('.cockpit-card, .metrics-row').forEach(overview => {
+        overview.style.display = tabId === 'settings' ? 'none' : '';
+      });
+      if (tabId === 'settings') {
+        window.scrollTo(0, 0);
+        loadPriorities();
+        pollFullState();
+        applyNativeSettings(nativePreferences || window.nativeSettings);
+      }
     }
 
     async function controlAction(action) {
+      if (!requireAccount()) return;
+      controlPending = true;
+      updateControlButtons();
       try {
-        await apiFetch('/api/control/' + action, { method: 'POST' });
+        const result = await responseData(await apiFetch('/api/control/' + action, { method: 'POST' }));
+        if (result.message) showToast(result.message, 'success');
+        await pollFullState();
       } catch (err) {
-        console.error(err);
+        showToast('Unable to ' + action + ': ' + err.message, 'error');
+      } finally {
+        controlPending = false;
+        updateControlButtons();
       }
     }
 
     async function watchChannel(channelId) {
+      if (!requireAccount()) return;
+      controlPending = true;
+      updateControlButtons();
       try {
         const response = await apiFetch('/api/control/watch', {
           method: 'POST',
@@ -1215,36 +1477,54 @@
         showToast(result.message, 'success');
       } catch (err) {
         showToast('Unable to watch channel: ' + err.message, 'error');
+      } finally {
+        controlPending = false;
+        updateControlButtons();
       }
     }
 
     async function claimDrops() {
+      if (!requireAccount()) return;
+      controlPending = true;
+      updateControlButtons();
       try {
         showToast('Checking ready drops...', 'info');
         const res = await apiFetch('/api/control/claim', { method: 'POST' });
-        const data = await res.json();
+        const data = await responseData(res);
         showToast(data.message || `Claimed ${data.claimed} drops`, data.claimed > 0 ? 'success' : 'info');
+        await pollFullState();
       } catch (err) {
         showToast('Error claiming drops: ' + err.message, 'error');
+      } finally {
+        controlPending = false;
+        updateControlButtons();
       }
     }
 
     async function toggleAutoClaim(enabled) {
-      const toggle = document.getElementById('autoClaimToggle');
-      toggle.disabled = true;
+      if (autoClaimPending || savedAutoClaim === null) return;
+      const previous = savedAutoClaim;
+      autoClaimPending = true;
+      ++settingsRevision;
+      ['autoClaimToggle', 'settingsAutoClaimToggle'].forEach(id => {
+        document.getElementById(id).checked = enabled;
+        document.getElementById(id).disabled = true;
+      });
       try {
-        const response = await apiFetch('/api/settings', {
+        const data = await responseData(await apiFetch('/api/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ auto_claim: enabled })
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        }));
+        savedAutoClaim = typeof data.auto_claim === 'boolean' ? data.auto_claim : enabled;
         showToast(enabled ? 'Auto-claim enabled' : 'Auto-claim disabled', 'success');
       } catch (err) {
-        toggle.checked = !enabled;
+        savedAutoClaim = previous;
         showToast('Failed to update auto-claim: ' + err.message, 'error');
       } finally {
-        toggle.disabled = false;
+        autoClaimPending = false;
+        ++settingsRevision;
+        syncAutoClaim(savedAutoClaim);
       }
     }
 
@@ -1252,24 +1532,30 @@
     let cachedAvailableGames = [];
     let cachedCampaignCounts = {};
 
-    async function loadPriorities() {
+    async function loadPriorities(force = false) {
+      if (prioritiesPending && !force) return;
+      const preferenceRevision = settingsRevision;
+      const listRevision = priorityRevision;
       try {
         const [settingsRes, gamesRes] = await Promise.all([
           apiFetch('/api/settings'),
           apiFetch('/api/games')
         ]);
-        const settingsData = await settingsRes.json();
-        const gamesData = await gamesRes.json();
+        const settingsData = await responseData(settingsRes);
+        const gamesData = await responseData(gamesRes);
+        if (preferenceRevision === settingsRevision) syncAutoClaim(settingsData.auto_claim);
+        if ((prioritiesPending && !force) || listRevision !== priorityRevision) return;
 
         priorityList = settingsData.priority || [];
         cachedAvailableGames = gamesData.available || [];
         cachedCampaignCounts = gamesData.campaign_counts || cachedCampaignCounts || {};
         document.getElementById('priorityMode').value = settingsData.priority_mode || 0;
+        prioritiesLoaded = true;
 
         updateGameSelectors();
         renderPriorityList();
       } catch (err) {
-        console.error(err);
+        showToast('Failed to load settings: ' + err.message, 'error');
       }
     }
 
@@ -1415,7 +1701,11 @@
     }
 
     function addGameToPriority(gameName) {
-      if (!gameName) return;
+      if (prioritiesPending || !gameName) return;
+      if (!prioritiesLoaded) {
+        showToast('Game settings are still loading. Open Settings and try again.', 'error');
+        return;
+      }
       if (priorityList.includes(gameName)) {
         showToast(`${gameName} is already prioritized`, 'info');
         return;
@@ -1424,10 +1714,10 @@
       updateGameSelectors();
       renderPriorityList();
       savePriorities(false);
-      showToast(`Added ${gameName} to priorities`, 'success');
     }
 
     function movePriority(index, delta) {
+      if (prioritiesPending) return;
       const targetIndex = index + delta;
       if (targetIndex < 0 || targetIndex >= priorityList.length) return;
       const item = priorityList.splice(index, 1)[0];
@@ -1437,90 +1727,103 @@
     }
 
     function removePriority(index) {
-      const removed = priorityList.splice(index, 1)[0];
+      if (prioritiesPending) return;
+      priorityList.splice(index, 1);
       updateGameSelectors();
       renderPriorityList();
       savePriorities(false);
-      showToast(`Removed ${removed} from priorities`, 'info');
     }
 
     async function savePriorities(showNotice = true) {
+      if (prioritiesPending) return;
+      if (!prioritiesLoaded) {
+        showToast('Load game settings before saving priorities.', 'error');
+        return;
+      }
+      prioritiesPending = true;
+      ++priorityRevision;
+      const controls = [...document.querySelectorAll('#gamePrioritySettings button, #gamePrioritySettings input, #gamePrioritySettings select, button[onclick^="addGameToPriority"]')];
+      const disabledStates = controls.map(control => control.disabled);
+      controls.forEach(control => { control.disabled = true; });
       const mode = parseInt(document.getElementById('priorityMode').value, 10);
       try {
-        await apiFetch('/api/settings', {
+        await responseData(await apiFetch('/api/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ priority: priorityList, priority_mode: mode })
-        });
+        }));
         if (showNotice) showToast('Priority configuration saved', 'success');
       } catch (err) {
-        showToast('Failed to save priorities', 'error');
+        showToast('Failed to save priorities: ' + err.message, 'error');
+        await loadPriorities(true);
+      } finally {
+        prioritiesPending = false;
+        ++priorityRevision;
+        controls.forEach((control, index) => { control.disabled = disabledStates[index]; });
       }
     }
 
     async function fetchInventory() {
-      const btn = document.getElementById('btnRefreshCampaigns');
+      if (!requireAccount()) return;
+      const revision = authRevision;
+      controlPending = true;
+      updateControlButtons();
       const btnText = document.getElementById('btnRefreshText');
-      if (btn) btn.disabled = true;
-      if (btnText) btnText.innerText = 'Refreshing...';
+      btnText.innerText = 'Refreshing...';
       showToast('Refreshing campaigns from Twitch...', 'info');
       try {
-        const res = await apiFetch('/api/inventory/refresh', { method: 'POST' });
-        const data = await res.json();
+        const data = await responseData(await apiFetch('/api/inventory/refresh', { method: 'POST' }));
+        if (revision !== authRevision || authPending || cachedState.auth_disconnected || !cachedState.is_logged_in) return;
         const camps = data.campaigns || [];
         renderInventory(camps);
         showToast(`Campaigns refreshed (${camps.length} active)`, 'success');
+        await loadPriorities();
       } catch (err) {
-        try {
-          const res = await apiFetch('/api/inventory');
-          const data = await res.json();
-          renderInventory(data);
-          showToast(`Campaigns loaded (${data.length} active)`, 'info');
-        } catch (e) {
-          showToast('Failed to refresh campaigns: ' + err.message, 'error');
-        }
+        showToast('Failed to refresh campaigns: ' + err.message, 'error');
       } finally {
-        if (btn) btn.disabled = false;
-        if (btnText) btnText.innerText = 'Refresh';
+        controlPending = false;
+        btnText.innerText = 'Refresh';
+        updateControlButtons();
       }
     }
 
     async function submitAuthToken() {
       const token = document.getElementById('authTokenInput').value.trim();
       if (!token) {
-        showToast('Please enter an auth-token', 'error');
+        document.getElementById('accountError').textContent = 'Please enter an auth-token.';
         return;
       }
-      try {
-        const res = await apiFetch('/api/auth/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token })
-        });
-        const data = await res.json();
-        showToast(data.message || 'Token saved', 'success');
-      } catch (err) {
-        showToast('Failed to save token', 'error');
-      }
+      await changeAccount('token', { token });
     }
     async function pollFullState() {
+      if (authPending) return;
+      const revision = authRevision;
+      const sequence = ++pollSequence;
+      const preferenceRevision = settingsRevision;
       try {
         const [statusRes, channelsRes, invRes] = await Promise.allSettled([
           apiFetch('/api/status'),
           apiFetch('/api/channels'),
           apiFetch('/api/inventory')
         ]);
+        if (authPending || revision !== authRevision || sequence !== pollSequence) return;
         if (statusRes.status === 'fulfilled' && statusRes.value.ok) {
           const statusData = await statusRes.value.json();
+          if (authPending || revision !== authRevision || sequence !== pollSequence) return;
+          if (preferenceRevision !== settingsRevision && savedAutoClaim !== null) {
+            statusData.settings = { ...statusData.settings, auto_claim: savedAutoClaim };
+          }
           cachedState = statusData;
           applyState(statusData);
         }
         if (channelsRes.status === 'fulfilled' && channelsRes.value.ok) {
           const channelsData = await channelsRes.value.json();
+          if (authPending || revision !== authRevision || sequence !== pollSequence) return;
           renderChannels(channelsData);
         }
         if (invRes.status === 'fulfilled' && invRes.value.ok) {
           const invData = await invRes.value.json();
+          if (authPending || revision !== authRevision || sequence !== pollSequence) return;
           const counts = {};
           (invData || []).forEach(c => {
             if (c.game) counts[c.game] = (counts[c.game] || 0) + 1;
@@ -1534,6 +1837,9 @@
     }
 
     window.addEventListener('DOMContentLoaded', () => {
+      updateAccountControls();
+      applyNativeSettings(nativePreferences || window.nativeSettings);
+      loadPriorities();
       pollFullState();
       initWebSocket();
       setInterval(pollFullState, 2500);

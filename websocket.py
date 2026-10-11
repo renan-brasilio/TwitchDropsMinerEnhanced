@@ -86,12 +86,10 @@ class Websocket:
 
     def start_nowait(self):
         if self._handle_task is None or self._handle_task.done():
-            self._handle_task = asyncio.create_task(self._handle())
+            self._handle_task = self._twitch.create_account_task(self._handle())
 
     async def stop(self, *, remove: bool = False):
         async with self._state_lock:
-            if self._closed.is_set():
-                return
             self._closed.set()
             ws = self._ws.get_with_default(None)
             if ws is not None:
@@ -103,13 +101,14 @@ class Websocket:
                 self._handle_task = None
             if remove:
                 self.topics.clear()
+                self._submitted.clear()
                 self._topics_changed.set()
                 self._twitch.gui.websockets.remove(self._idx)
 
     def stop_nowait(self, *, remove: bool = False):
         # weird syntax but that's what we get for using a decorator for this
         # return type of 'task_wrapper' is a coro, so we need to instance it for the task
-        asyncio.create_task(task_wrapper(self.stop)(remove=remove))
+        self._twitch.create_account_task(task_wrapper(self.stop)(remove=remove))
 
     async def _backoff_connect(
         self, ws_url: str, **kwargs
@@ -274,7 +273,7 @@ class Websocket:
         topic = self.topics.get(message["data"]["topic"])
         if topic is not None:
             # use a task to not block the websocket
-            asyncio.create_task(topic(json.loads(message["data"]["message"])))
+            self._twitch.create_account_task(topic(json.loads(message["data"]["message"])))
 
     async def _handle_recv(self):
         """
