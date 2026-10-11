@@ -89,6 +89,11 @@ class ProgressHub(_HubComponent):
         if self._timer_task is not None and not self._timer_task.done():
             self._timer_task.cancel()
 
+    def clear(self) -> None:
+        self.stop_timer()
+        self._current_drop = None
+        self._seconds = 0
+
     def start_timer(self) -> None:
         self._start_countdown()
 
@@ -119,7 +124,12 @@ class ProgressHub(_HubComponent):
 
 
 class ChannelListHub(_HubComponent):
+    def __init__(self, hub: StateHub) -> None:
+        super().__init__(hub)
+        self._selection: Channel | None = None
+
     def clear(self) -> None:
+        self._selection = None
         self._hub.clear_channels()
 
     def clear_watching(self) -> None:
@@ -137,8 +147,13 @@ class ChannelListHub(_HubComponent):
     def set_watching(self, channel: Channel | None) -> None:
         self._hub.set_watching_channel(channel)
 
-    def get_selection(self) -> None:
-        return None
+    def select(self, channel: Channel) -> None:
+        self._selection = channel
+
+    def get_selection(self) -> Channel | None:
+        channel = self._selection
+        self._selection = None
+        return channel
 
 class InventoryHub(_HubComponent):
     def clear(self) -> None:
@@ -193,6 +208,7 @@ class StateHub:
         self.active_channel: dict[str, Any] | None = None
         self.channels_map: dict[int, dict[str, Any]] = {}
         self.campaigns_map: dict[str, dict[str, Any]] = {}
+        self._inventory_campaigns: dict[str, DropsCampaign] = {}
         self.available_games: list[dict[str, Any]] = []
         self.websockets_status: dict[int, dict[str, Any]] = {}
 
@@ -288,6 +304,7 @@ class StateHub:
         self.broadcast_event("auth_code", self.device_code_data)
 
     def clear_drop(self) -> None:
+        self.progress.clear()
         self.active_drop = None
         self.broadcast_event("drop", None)
 
@@ -326,6 +343,8 @@ class StateHub:
         self.active_drop = {
             "id": drop.id,
             "name": drop.name,
+            "campaign_id": drop.campaign.id,
+            "campaign_name": drop.campaign.name,
             "game": str(drop.campaign.game),
             "game_box_art": game_box_art,
             "current_minutes": curr,
@@ -358,6 +377,9 @@ class StateHub:
                 "game": str(channel.game) if channel.game else "",
             }
         self.broadcast_event("watching", self.active_channel)
+        for channel_data in self.channels_map.values():
+            channel_data["watching"] = channel is not None and channel_data["id"] == channel.id
+        self.broadcast_event("channels", list(self.channels_map.values()))
 
     def clear_channels(self) -> None:
         self.channels_map.clear()
@@ -396,6 +418,7 @@ class StateHub:
 
     def clear_inventory(self) -> None:
         self.campaigns_map.clear()
+        self._inventory_campaigns.clear()
         self.broadcast_event("inventory", [])
 
     def update_inventory_drop(self, drop: TimedDrop) -> None:
@@ -410,9 +433,10 @@ class StateHub:
                     d["percentage"] = round((drop.current_minutes / (drop.required_minutes or 1)) * 100, 1)
                     d["is_claimed"] = drop.is_claimed
                     d["can_claim"] = drop.can_claim
-            self.broadcast_event("inventory", list(self.campaigns_map.values()))
+            self.broadcast_event("inventory", self.get_inventory())
 
     def update_inventory_campaign(self, campaign: DropsCampaign) -> None:
+        self._inventory_campaigns[campaign.id] = campaign
         drops_list = []
         for drop in campaign.drops:
             image_url = ""
@@ -450,7 +474,30 @@ class StateHub:
             "ends_at": campaign.ends_at.isoformat() if hasattr(campaign, "ends_at") else "",
             "drops": drops_list,
         }
-        self.broadcast_event("inventory", list(self.campaigns_map.values()))
+        self.broadcast_event("inventory", self.get_inventory())
+
+    def get_inventory(self) -> list[dict[str, Any]]:
+        visible = []
+        for campaign_id, data in self.campaigns_map.items():
+            campaign = self._inventory_campaigns[campaign_id]
+            ongoing = campaign.active or campaign.upcoming
+            claimable = {
+                drop.id for drop in campaign.drops
+                if campaign.eligible and not drop.is_claimed and drop.can_claim
+            }
+            if not claimable and (not ongoing or campaign.finished):
+                continue
+            visible.append({
+                **data,
+                "active": campaign.active,
+                "upcoming": campaign.upcoming,
+                "drops": [
+                    {**drop, "can_claim": drop["id"] in claimable}
+                    for drop in data["drops"]
+                    if ongoing or drop["id"] in claimable
+                ],
+            })
+        return visible
 
     def set_games(self, games: set[Game]) -> None:
         self.available_games = [
@@ -494,7 +541,7 @@ class StateHub:
             "active_channel": self.active_channel,
             "device_code": self.device_code_data,
             "channels_count": len(self.channels_map),
-            "campaigns_count": len(self.campaigns_map),
+            "campaigns_count": len(self.get_inventory()),
             "websockets": list(self.websockets_status.values()),
         }
 

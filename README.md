@@ -26,6 +26,8 @@
 
 - **🍎 Full Native macOS Desktop Window + Menu Bar Status Extra**:
   - **Desktop Window (`WKWebView`)**: Responsive dark-mode console displaying your live campaign progress, game box art covers, item reward icons, and 20 monitored streams.
+  - **Channel Selection**: **Watch** in the tracked-channel list switches the miner to that eligible live channel; it does not open Twitch in a browser. Offline channels are disabled, and unavailable or ineligible channels report an error.
+  - **Active Target**: Shows the campaign name as well as the reward. Inventory refresh rebinds the target to fresh campaign data and clears it when the current channel can no longer earn a reward.
   - **Menu Bar Extra (`NSStatusItem`)**: Custom Twitch + pickaxe template icon in your macOS menu bar displaying real-time progress (`[████████░░] 85%`), active streamer, viewer counts, and quick actions upon clicking.
   - **Close to Menu Bar**: Hides the window and removes the Dock icon while mining and menu bar status remain active. Use **Open Dashboard Window** in the status menu to restore the window and Dock icon.
   - **Window Close Preference**: **Keep Running in Menu Bar When Window Closes** is enabled by default, available in both the app and status menus, and saved across restarts. It applies to the red close button and `Cmd+W`; disable it to quit when closing the window. **Quit** (`Cmd+Q`) always exits the app.
@@ -42,6 +44,8 @@
   - One-click `+ Prioritize` button directly on every campaign card.
 - **Campaign schedule and reward claiming**:
   - Each campaign shows its start and end dates in your local timezone, plus time remaining.
+  - Fully claimed campaigns are hidden. Ended campaigns remain visible only while this account has an eligible, unclaimed reward within Twitch's claim window; only those claimable rewards are listed for ended campaigns.
+  - Campaign totals and game-picker counts use the same filtered inventory and update after claims.
   - Toggle **Auto-claim drops** in **Campaigns & Rewards**. Enabled by default to preserve existing behavior; saved across backend restarts.
   - When disabled, rewards remain available for manual claiming using **Claim**. Dependent rewards may require the previous reward to be claimed before progressing.
 - **🐳 Docker & Remote VPS Support**:

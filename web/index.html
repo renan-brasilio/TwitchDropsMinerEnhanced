@@ -663,6 +663,7 @@
           <div class="drop-title" id="dropTitle">No Active Campaign</div>
           <div class="drop-meta">
             <span id="gameLabel">Game: <span class="meta-tag" id="gameText">Idle</span></span>
+            <span>Campaign: <span class="meta-tag" id="campaignText">None</span></span>
             <span id="streamerMeta">Stream: <span class="meta-tag" id="streamerText">Waiting</span></span>
           </div>
         </div>
@@ -965,7 +966,7 @@
       renderActivation(state.device_code);
 
       document.getElementById('statChannels').innerText = (state.channels || []).length;
-      document.getElementById('statCampaigns').innerText = (state.inventory || []).length;
+      document.getElementById('statCampaigns').innerText = state.campaigns_count ?? (state.inventory || []).length;
       
       let topicCount = 0;
       (state.websockets || []).forEach(wsItem => {
@@ -992,12 +993,15 @@
       if (!drop) {
         document.getElementById('dropTitle').innerText = 'No Active Campaign';
         document.getElementById('gameText').innerText = 'Idle';
+        document.getElementById('campaignText').innerText = 'None';
+        document.getElementById('dropThumbnail').replaceChildren();
         document.getElementById('percentDisplay').innerText = '0.0%';
         document.getElementById('minutesDisplay').innerText = '0 / 0 min (0m remaining)';
         document.getElementById('progressFill').style.width = '0%';
         return;
       }
       document.getElementById('dropTitle').innerText = drop.name;
+      document.getElementById('campaignText').innerText = drop.campaign_name || 'None';
       const gameText = document.getElementById('gameText');
       if (drop.game_box_art) {
         gameText.innerHTML = `<img src="${drop.game_box_art}" alt="${drop.game}" style="width: 16px; height: 22px; border-radius: 2px; object-fit: cover; vertical-align: middle; margin-right: 5px; border: 1px solid var(--border);">${drop.game}`;
@@ -1038,7 +1042,7 @@
           <td><strong>${ch.name}</strong></td>
           <td>${ch.game || '-'}</td>
           <td class="mono">${ch.viewers ? ch.viewers.toLocaleString() : 0}</td>
-          <td><a href="${ch.url || ('https://twitch.tv/' + ch.name)}" target="_blank" class="btn" style="padding: 3px 8px; font-size: 11px;">Watch</a></td>
+          <td><button class="btn" style="padding: 3px 8px; font-size: 11px;" onclick="watchChannel(${ch.id})" ${ch.online ? '' : 'disabled'}>Watch</button></td>
         </tr>
       `).join('');
       document.getElementById('statChannels').innerText = channels.length;
@@ -1064,6 +1068,7 @@
 
     function renderInventory(campaigns) {
       const container = document.getElementById('campaignsList');
+      document.getElementById('statCampaigns').innerText = (campaigns || []).length;
       if (!campaigns || campaigns.length === 0) {
         container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No active campaigns found on account.</p>';
         return;
@@ -1194,6 +1199,22 @@
         await apiFetch('/api/control/' + action, { method: 'POST' });
       } catch (err) {
         console.error(err);
+      }
+    }
+
+    async function watchChannel(channelId) {
+      try {
+        const response = await apiFetch('/api/control/watch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channel_id: channelId })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        await pollFullState();
+        showToast(result.message, 'success');
+      } catch (err) {
+        showToast('Unable to watch channel: ' + err.message, 'error');
       }
     }
 

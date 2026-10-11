@@ -1069,6 +1069,12 @@ class Twitch:
         self.gui.tray.change_icon("active")
         self.gui.channels.set_watching(channel)
         self.watching_channel.set(channel)
+        campaign = self.get_active_campaign(channel)
+        drop = campaign.first_drop if campaign is not None else None
+        if drop is not None:
+            drop.display()
+        else:
+            self.gui.clear_drop()
         if update_status:
             status_text = _("status", "watching").format(channel=channel.name)
             self.print(status_text)
@@ -1452,6 +1458,7 @@ class Twitch:
         return self._merge_data(campaign_ids, fetched_data)
 
     async def fetch_inventory(self) -> None:
+        previous_status = self.gui.status_text
         status_update = self.gui.status.update
         status_update(_("gui", "status", "fetching_inventory"))
         # fetch in-progress campaigns (inventory)
@@ -1526,6 +1533,7 @@ class Twitch:
         campaigns.sort(key=lambda c: c.upcoming and c.starts_at or c.ends_at)
         campaigns.sort(key=lambda c: c.eligible, reverse=True)
 
+        self.gui.clear_drop()
         self._drops.clear()
         self.gui.inv.clear()
         self.inventory.clear()
@@ -1573,6 +1581,15 @@ class Twitch:
         if self._mnt_task is not None and not self._mnt_task.done():
             self._mnt_task.cancel()
         self._mnt_task = asyncio.create_task(self._maintenance_task())
+        watching = self.watching_channel.get_with_default(None)
+        if watching is not None:
+            if self.can_watch(watching):
+                self.watch(watching)
+            else:
+                self.stop_watching()
+                self.change_state(State.GAMES_UPDATE)
+        else:
+            status_update(previous_status)
 
     def get_active_campaign(self, channel: Channel | None = None) -> DropsCampaign | None:
         if not self.wanted_games:

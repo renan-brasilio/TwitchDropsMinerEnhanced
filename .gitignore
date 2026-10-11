@@ -30,3 +30,6 @@ settings.json
 AppIcon.iconset/
 *.app
 mac/TwitchDropsMinerMenu
+
+# Local standing instructions for coding assistants
+/AGENTS.md

@@ -86,6 +86,7 @@ class APIServer:
         self._app.router.add_post("/api/control/reload", self._control_reload)
         self._app.router.add_post("/api/control/switch", self._control_switch)
         self._app.router.add_post("/api/control/claim", self._control_claim)
+        self._app.router.add_post("/api/control/watch", self._control_watch)
 
         # WebSocket
         self._app.router.add_get("/ws", self._ws_handler)
@@ -124,24 +125,25 @@ class APIServer:
         return self._json_response(list(self._hub.channels_map.values()))
 
     async def _get_inventory(self, request: web.Request) -> web.Response:
-        return self._json_response(list(self._hub.campaigns_map.values()))
+        return self._json_response(self._hub.get_inventory())
 
 
     async def _post_inventory_refresh(self, request: web.Request) -> web.Response:
         self._hub.add_log("INFO", "Refreshing inventory and drop campaigns from Twitch...")
         try:
             await self._twitch.fetch_inventory()
+            campaigns = self._hub.get_inventory()
             return self._json_response({
                 "status": "success",
-                "campaigns": list(self._hub.campaigns_map.values()),
-                "count": len(self._hub.campaigns_map)
+                "campaigns": campaigns,
+                "count": len(campaigns)
             })
         except Exception as e:
             logger.error(f"Failed to refresh inventory: {e}")
             return self._json_response({
                 "status": "error",
                 "message": str(e),
-                "campaigns": list(self._hub.campaigns_map.values())
+                "campaigns": self._hub.get_inventory()
             }, status=500)
     async def _get_games(self, request: web.Request) -> web.Response:
         popular = [
@@ -162,7 +164,7 @@ class APIServer:
                 games_dict[g_name] = {"name": g_name, "id": g.get("id"), "discovered": True}
 
         campaign_counts: dict[str, int] = {}
-        for camp in self._hub.campaigns_map.values():
+        for camp in self._hub.get_inventory():
             c_game = camp.get("game")
             if c_game:
                 games_dict[c_game] = {"name": c_game, "discovered": True}
@@ -265,6 +267,24 @@ class APIServer:
         self._twitch.change_state(State.CHANNEL_SWITCH)
         return self._json_response({"status": "success", "state": "CHANNEL_SWITCH"})
 
+    async def _control_watch(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+        except (ValueError, TypeError):
+            return self._json_response({"error": "Invalid JSON"}, status=400)
+        if not isinstance(data, dict) or type(data.get("channel_id")) is not int:
+            return self._json_response({"error": "channel_id must be an integer"}, status=400)
+        channel = self._twitch.channels.get(data["channel_id"])
+        if channel is None:
+            return self._json_response({"error": "Channel is no longer tracked"}, status=404)
+        if not self._twitch.can_watch(channel):
+            return self._json_response({"error": "This channel cannot earn your active drops"}, status=409)
+        self._hub.channels.select(channel)
+        self._twitch.watch(channel)
+        self._twitch.restart_watching()
+        self._twitch.change_state(State.CHANNEL_SWITCH)
+        return self._json_response({"status": "success", "channel_id": channel.id, "message": f"Watching: {channel.name}"})
+
     async def _control_claim(self, request: web.Request) -> web.Response:
         claimed_count = 0
         claimed_names: list[str] = []
@@ -306,7 +326,7 @@ class APIServer:
         # Send initial snapshot immediately
         init_data = self._hub.get_full_status()
         init_data["channels"] = list(self._hub.channels_map.values())
-        init_data["inventory"] = list(self._hub.campaigns_map.values())
+        init_data["inventory"] = self._hub.get_inventory()
         init_data["settings"] = {
             "priority": list(self._twitch.settings.priority),
             "priority_mode": self._twitch.settings.priority_mode.name,
