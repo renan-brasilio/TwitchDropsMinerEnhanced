@@ -20,4 +20,4 @@ omit =
 
 [report]
 # fail_under is the ratchet floor (measured baseline): raise it when coverage improves, never lower it.
-fail_under = 86
+fail_under = 88

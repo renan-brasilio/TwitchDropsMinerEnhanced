@@ -334,104 +334,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     }
 
     func buildMenu() {
-        let menu = NSMenu()
-
-        // 1. Show Main Window Action
-        let showItem = NSMenuItem(title: "Open Dashboard Window", action: #selector(showMainWindowAction), keyEquivalent: "o")
-        showItem.attributedTitle = NSAttributedString(
-            string: "Open Dashboard Window",
-            attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]
+        statusItem.menu = StatusMenuBuilder.buildMenu(
+            status: status,
+            isRemote: isRemote,
+            menuBarStyle: menuBarStyle,
+            keepRunningOnClose: keepRunningOnClose,
+            target: self
         )
-        menu.addItem(showItem)
-        menu.addItem(NSMenuItem(title: "Close to Menu Bar", action: #selector(closeToMenuBar), keyEquivalent: ""))
-
-        menu.addItem(NSMenuItem.separator())
-
-        // 2. Status Row with Indicator
-        menu.addItem(NSMenuItem(title: StatusPresentation.statusLine(status: status, isRemote: isRemote), action: nil, keyEquivalent: ""))
-
-        let detailItem = NSMenuItem(title: "Task: \(status.statusText)", action: nil, keyEquivalent: "")
-        menu.addItem(detailItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // 3. Active Drop & Game
-        if let drop = status.activeDropName, let game = status.activeGame {
-            let dropHeader = NSMenuItem(title: "Game: \(game)", action: nil, keyEquivalent: "")
-            dropHeader.attributedTitle = NSAttributedString(
-                string: "Game: \(game)",
-                attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold)]
-            )
-            menu.addItem(dropHeader)
-
-            let dropItem = NSMenuItem(title: "Reward: \(drop)", action: nil, keyEquivalent: "")
-            menu.addItem(dropItem)
-
-            let progressStr = StatusPresentation.progressLine(status: status)
-            let progressItem = NSMenuItem(title: progressStr, action: nil, keyEquivalent: "")
-            menu.addItem(progressItem)
-        } else {
-            let noDropItem = NSMenuItem(title: "Reward: None active", action: nil, keyEquivalent: "")
-            noDropItem.isEnabled = false
-            menu.addItem(noDropItem)
-        }
-
-        // 4. Streamer info
-        if let ch = status.activeChannel {
-            let streamerStr = "Channel: \(ch) (\(status.activeViewers.formatted()) viewers)"
-            menu.addItem(NSMenuItem(title: streamerStr, action: nil, keyEquivalent: ""))
-        } else {
-            let noStreamer = NSMenuItem(title: "Channel: None", action: nil, keyEquivalent: "")
-            noStreamer.isEnabled = false
-            menu.addItem(noStreamer)
-        }
-
-        menu.addItem(NSMenuItem.separator())
-
-        // 5. Mining Controls
-        if status.minerState == "IDLE" {
-            menu.addItem(NSMenuItem(title: "Resume Mining", action: #selector(resumeMining), keyEquivalent: "r"))
-        } else {
-            menu.addItem(NSMenuItem(title: "Pause Mining", action: #selector(pauseMining), keyEquivalent: "p"))
-        }
-        menu.addItem(NSMenuItem(title: "Next Streamer", action: #selector(switchStreamer), keyEquivalent: "s"))
-        menu.addItem(NSMenuItem(title: "Claim Eligible Drops", action: #selector(claimDropsAction), keyEquivalent: "c"))
-        menu.addItem(NSMenuItem(title: "Reload Campaigns", action: #selector(reloadCampaigns), keyEquivalent: ""))
-
-        // Activation Code Quick Copy (if device code is required)
-        if let code = status.deviceCode {
-            menu.addItem(NSMenuItem.separator())
-            let copyItem = NSMenuItem(title: "Copy Activation Code: \(code)", action: #selector(copyActivationCodeAction), keyEquivalent: "")
-            copyItem.attributedTitle = NSAttributedString(
-                string: "Copy Code: \(code)",
-                attributes: [.font: NSFont.boldSystemFont(ofSize: 12), .foregroundColor: NSColor.systemOrange]
-            )
-            menu.addItem(copyItem)
-            menu.addItem(NSMenuItem(title: "Open Twitch Activation Page...", action: #selector(openActivationPage), keyEquivalent: ""))
-        }
-
-        menu.addItem(NSMenuItem.separator())
-        // 6. Settings & Config
-        menu.addItem(NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ","))
-        menu.addItem(NSMenuItem(title: "Connection Settings...", action: #selector(showConnectionSettings), keyEquivalent: ""))
-        menu.addItem(makeCloseBehaviorItem())
-
-        // 6b. Menu Bar Display Submenu
-        let displaySubmenu = NSMenu(title: "Menu Bar Display")
-        for style in MenuBarStyle.allCases {
-            let item = NSMenuItem(title: style.title, action: #selector(changeMenuBarStyle(_:)), keyEquivalent: "")
-            item.representedObject = style.rawValue
-            item.state = (menuBarStyle == style) ? .on : .off
-            displaySubmenu.addItem(item)
-        }
-        let displayMenuItem = NSMenuItem(title: "Menu Bar Display", action: nil, keyEquivalent: "")
-        displayMenuItem.submenu = displaySubmenu
-        menu.addItem(displayMenuItem)
-
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
-
-        statusItem.menu = menu
     }
 
     func updateUI() {

@@ -1,25 +1,26 @@
 """REST/WebSocket contract and remote-security regression tests for api.py."""
+import asyncio
 import copy
 import json
 import logging
 import os
 import tempfile
 import unittest
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
-from aiohttp import WSServerHandshakeError
+from aiohttp import web, WSServerHandshakeError
 from aiohttp.test_utils import TestClient, TestServer
 
 from api import APIServer
-from constants import PriorityMode
+from constants import PriorityMode, State
 from inventory import DropsCampaign
 from settings import Settings
 from twitch import Twitch
 from utils import Game
-
 
 NOW = datetime(2026, 10, 11, 12, tzinfo=timezone.utc)
 API_KEY = "synthetic-api-key-5c1e"
@@ -108,9 +109,9 @@ class ApiContractTestCase(unittest.IsolatedAsyncioTestCase):
         self.settings.save(force=True)
         self.twitch = Twitch(self.settings)
         self.hub = self.twitch.gui
-        self.client = TestClient(TestServer(APIServer(self.twitch, self.hub)._app))
+        self.api_server = APIServer(self.twitch, self.hub)
+        self.client = TestClient(TestServer(self.api_server._app))
         await self.client.start_server()
-
     async def asyncTearDown(self):
         await self.client.close()
         self.hub.progress.stop_timer()
@@ -130,9 +131,9 @@ class ApiContractTestCase(unittest.IsolatedAsyncioTestCase):
         self.hub.update_inventory_campaign(campaign)
         return campaign
 
-    def add_channel(self, campaign, channel_id):
+    def add_channel(self, campaign, channel_id, online=True):
         channel = SimpleNamespace(id=channel_id, name=f"streamer{channel_id}", viewers=10,
-                                  online=True, game=campaign.game, drops_enabled=True)
+                                  online=online, game=campaign.game, drops_enabled=True)
         self.twitch.channels[channel_id] = channel
         self.hub.upsert_channel(channel)
         return channel
@@ -573,6 +574,231 @@ class GamesEndpointTests(ApiContractTestCase):
         self.assertEqual(games["exclude"], ["Rust"])
         status = await self.get_json("/api/status")
         self.assertEqual(status["campaigns_count"], sum(games["campaign_counts"].values()))
+
+
+class ControlEndpointsTests(ApiContractTestCase):
+    async def test_control_pause_resume_reload_switch(self):
+        # 1. Pause
+        res = await self.client.post("/api/control/pause")
+        self.assertEqual(res.status, 200)
+        self.assertEqual(await res.json(), {"status": "success", "state": "IDLE"})
+        self.assertEqual(self.twitch._state, State.IDLE)
+        self.assertEqual(self.hub.status_text, "Paused by user")
+        self.assertEqual(self.hub.tray_icon, "idle")
+
+        # 2. Resume
+        res = await self.client.post("/api/control/resume")
+        self.assertEqual(res.status, 200)
+        self.assertEqual(await res.json(), {"status": "success", "state": "INVENTORY_FETCH"})
+        self.assertEqual(self.twitch._state, State.INVENTORY_FETCH)
+        self.assertEqual(self.hub.status_text, "Resuming mining...")
+
+        # 3. Reload
+        res = await self.client.post("/api/control/reload")
+        self.assertEqual(res.status, 200)
+        self.assertEqual(await res.json(), {"status": "success", "state": "INVENTORY_FETCH"})
+        self.assertEqual(self.twitch._state, State.INVENTORY_FETCH)
+        self.assertEqual(self.hub.status_text, "Reloading campaigns...")
+
+        # 4. Switch
+        res = await self.client.post("/api/control/switch")
+        self.assertEqual(res.status, 200)
+        self.assertEqual(await res.json(), {"status": "success", "state": "CHANNEL_SWITCH"})
+        self.assertEqual(self.twitch._state, State.CHANNEL_SWITCH)
+        self.assertEqual(self.hub.status_text, "Switching channel...")
+
+    async def test_control_watch_success_and_errors(self):
+        campaign = self.add_campaign("active")
+        channel = self.add_channel(campaign, 42, online=True)
+
+        # Non-integer channel_id -> 400
+        res = await self.client.post("/api/control/watch", json={"channel_id": "not-an-int"})
+        self.assertEqual(res.status, 400)
+
+        # Non-dict body -> 400
+        res = await self.client.post("/api/control/watch", data="42", headers={"Content-Type": "application/json"})
+        self.assertEqual(res.status, 400)
+
+        # Unknown channel -> 404
+        res = await self.client.post("/api/control/watch", json={"channel_id": 9999})
+        self.assertEqual(res.status, 404)
+
+        # Ineligible channel (offline) -> 409
+        channel.online = False
+        res = await self.client.post("/api/control/watch", json={"channel_id": 42})
+        self.assertEqual(res.status, 409)
+
+        # Eligible channel -> 200, state switches
+        channel.online = True
+        res = await self.client.post("/api/control/watch", json={"channel_id": 42})
+        self.assertEqual(res.status, 200)
+        data = await res.json()
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["channel_id"], 42)
+        self.assertEqual(self.twitch._state, State.CHANNEL_SWITCH)
+
+    async def test_control_claim_generates_claim_for_completed_drops_and_handles_refresh_error(self):
+        campaign = self.add_campaign("active-completed")
+        drop = list(campaign.drops)[0]
+        drop.update_minutes(drop.required_minutes)
+        drop.claim_id = None
+        drop.is_claimed = False
+
+        # Mock generate_claim and claim
+        generate_called = False
+        async def fake_generate_claim():
+            nonlocal generate_called
+            generate_called = True
+            drop.claim_id = "generated-claim-id"
+        drop.generate_claim = fake_generate_claim
+        drop.claim = AsyncMock(return_value=True)
+
+        # Also simulate fetch_inventory raising an exception during claim
+        with patch.object(self.twitch, "fetch_inventory", side_effect=RuntimeError("Transient error")):
+            res = await self.client.post("/api/control/claim")
+            self.assertEqual(res.status, 200)
+            self.assertTrue(generate_called)
+            data = await res.json()
+            self.assertEqual(data["claimed"], 1)
+
+
+class WebSocketActionHandlingTests(ApiContractTestCase):
+    async def test_websocket_actions_and_error_handling(self):
+        ws = await self.client.ws_connect("/ws")
+        try:
+            # Drain init
+            await ws.receive_json(timeout=2)
+
+            # 1. Action: pause
+            await ws.send_json({"action": "pause"})
+            await asyncio.sleep(0.05)
+            self.assertEqual(self.twitch._state, State.IDLE)
+
+            # 2. Action: resume
+            await ws.send_json({"action": "resume"})
+            await asyncio.sleep(0.05)
+            self.assertEqual(self.twitch._state, State.INVENTORY_FETCH)
+
+            # 3. Action: reload
+            await ws.send_json({"action": "reload"})
+            await asyncio.sleep(0.05)
+            self.assertEqual(self.twitch._state, State.INVENTORY_FETCH)
+
+            # 4. Action: switch
+            await ws.send_json({"action": "switch"})
+            await asyncio.sleep(0.05)
+            self.assertEqual(self.twitch._state, State.CHANNEL_SWITCH)
+
+            # 5. Invalid JSON string or unknown action -> ignored safely
+            await ws.send_str("{invalid json")
+            await ws.send_json({"action": "unknown"})
+            await asyncio.sleep(0.05)
+            # Connection is still alive
+            self.assertFalse(ws.closed)
+        finally:
+            await ws.close()
+
+
+class InventoryRefreshAndAuthEndpointTests(ApiContractTestCase):
+    async def test_inventory_refresh_success_and_failure(self):
+        # Success
+        with patch.object(self.twitch, "fetch_inventory", new_callable=AsyncMock):
+            res = await self.client.post("/api/inventory/refresh")
+            self.assertEqual(res.status, 200)
+            data = await res.json()
+            self.assertEqual(data["status"], "success")
+            self.assertIn("campaigns", data)
+
+        # Failure when fetch_inventory raises Exception
+        with patch.object(self.twitch, "fetch_inventory", side_effect=RuntimeError("GQL failure")):
+            res = await self.client.post("/api/inventory/refresh")
+            self.assertEqual(res.status, 500)
+            data = await res.json()
+            self.assertEqual(data["status"], "error")
+            self.assertIn("GQL failure", data["message"])
+
+    async def test_auth_token_validation_and_errors(self):
+        # Non-JSON -> 400
+        res = await self.client.post("/api/auth/token", data="not json", headers={"Content-Type": "application/json"})
+        self.assertEqual(res.status, 400)
+
+        # Missing token or empty -> 400
+        res = await self.client.post("/api/auth/token", json={})
+        self.assertEqual(res.status, 400)
+        res = await self.client.post("/api/auth/token", json={"token": "   "})
+        self.assertEqual(res.status, 400)
+
+        # When twitch.connect raises -> 500
+        with patch.object(self.twitch, "connect", side_effect=RuntimeError("Auth failure")):
+            res = await self.client.post("/api/auth/token", json={"token": "valid_format_token"})
+            self.assertEqual(res.status, 500)
+
+    async def test_auth_connect_and_disconnect_endpoints(self):
+        # connect failure -> 500
+        with patch.object(self.twitch, "connect", side_effect=RuntimeError("Connect fail")):
+            res = await self.client.post("/api/auth/connect")
+            self.assertEqual(res.status, 500)
+
+        # connect success -> 200
+        with patch.object(self.twitch, "connect", new_callable=AsyncMock):
+            res = await self.client.post("/api/auth/connect")
+            self.assertEqual(res.status, 200)
+            self.assertEqual((await res.json())["message"], "Twitch login started")
+
+        # disconnect failure -> 500
+        with patch.object(self.twitch, "disconnect", side_effect=RuntimeError("Disconnect fail")):
+            res = await self.client.post("/api/auth/disconnect")
+            self.assertEqual(res.status, 500)
+
+        # disconnect success -> 200
+        with patch.object(self.twitch, "disconnect", new_callable=AsyncMock):
+            res = await self.client.post("/api/auth/disconnect")
+            self.assertEqual(res.status, 200)
+            self.assertEqual((await res.json())["message"], "Disconnected from Twitch")
+
+
+class ServerLifecycleAndStaticTests(ApiContractTestCase):
+    async def test_account_middleware_cancelled_when_account_unavailable(self):
+        # Test line 83 in _account_middleware: CancelledError when account becomes unavailable
+        @asynccontextmanager
+        async def cancel_op():
+            self.twitch.settings.auth_disconnected = True
+            raise asyncio.CancelledError()
+            yield
+
+        with patch.object(self.twitch, "account_operation", side_effect=cancel_op):
+            res = await self.client.post("/api/control/pause")
+            self.assertEqual(res.status, 409)
+            self.assertIn("cancelled", (await res.json())["error"])
+
+    async def test_serve_index_fallback_when_file_missing(self):
+        import api
+        with patch.object(api.Path, "exists", return_value=False):
+            res = await self.client.get("/")
+            self.assertEqual(res.status, 200)
+            text = await res.text()
+            self.assertIn("Web Dashboard assets loading...", text)
+
+    async def test_server_start_port_fallback_and_stop_cleanup(self):
+        server = APIServer(self.twitch, self.hub, host="127.0.0.1", port=34567)
+        start_count = 0
+
+        orig_start = web.TCPSite.start
+        async def mock_start(site_self):
+            nonlocal start_count
+            start_count += 1
+            if start_count == 1:
+                raise OSError("Port already in use")
+            return await orig_start(site_self)
+
+        with patch.object(web.TCPSite, "start", mock_start):
+            await server.start()
+            self.assertEqual(start_count, 2)
+            # Test stop cleanup with simulated ws clients
+            mock_ws = AsyncMock()
+            server._ws_clients.add(mock_ws)
+            await server.stop()
+            mock_ws.close.assert_awaited()
 
 
 if __name__ == "__main__":
