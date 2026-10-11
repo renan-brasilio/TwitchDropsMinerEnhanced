@@ -705,6 +705,7 @@ class Twitch:
                             for drop in campaign.drops:
                                 if drop.can_claim:
                                     await drop.claim()
+                self._prune_focus()
                 # figure out which games we want
                 self.wanted_games.clear()
                 # Twitch display names are matched case-insensitively ("Valorant" == "VALORANT").
@@ -726,13 +727,17 @@ class Twitch:
                         if c.game.name.casefold() in priority else MAX_INT
                     )
                 )
+                # a "Mine now" campaign goes ahead of everything else
+                sorted_campaigns.sort(key=lambda c: not c.focused)
                 for campaign in sorted_campaigns:
                     game: Game = campaign.game
                     if (
                         game not in self.wanted_games  # isn't already there
-                        # and isn't excluded by list or priority mode
-                        and game.name.casefold() not in exclude
-                        and (not priority_only or game.name.casefold() in priority)
+                        # and isn't excluded by list or priority mode, unless started explicitly
+                        and (campaign.focused or (
+                            game.name.casefold() not in exclude
+                            and (not priority_only or game.name.casefold() in priority)
+                        ))
                         # and can be progressed within the next hour
                         and campaign.can_earn_within(next_hour)
                     ):
@@ -1761,6 +1766,16 @@ class Twitch:
             ],
         }
 
+    def _prune_focus(self) -> None:
+        """Drop a "Mine now" choice whose campaign is gone, over, or has nothing left to earn."""
+        focused = getattr(self.settings, "focused_campaign", "")
+        if not focused:
+            return
+        campaign = self._campaigns.get(focused)
+        if campaign is None or campaign not in self.inventory or campaign.expired or campaign.finished:
+            self.settings.focused_campaign = ""
+            self.settings.save(force=True)
+
     def get_active_campaign(self, channel: Channel | None = None) -> DropsCampaign | None:
         if not self.wanted_games:
             return None
@@ -1773,7 +1788,7 @@ class Twitch:
             if campaign.can_earn(watching_channel):
                 campaigns.append(campaign)
         if campaigns:
-            campaigns.sort(key=lambda c: c.remaining_minutes)
+            campaigns.sort(key=lambda c: (not c.focused, c.remaining_minutes))
             return campaigns[0]
         return None
 

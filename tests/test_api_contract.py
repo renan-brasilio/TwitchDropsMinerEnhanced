@@ -596,6 +596,64 @@ class GamesEndpointTests(ApiContractTestCase):
         self.assertEqual(status["campaigns_count"], sum(games["campaign_counts"].values()))
 
 
+class CampaignChoiceEndpointTests(ApiContractTestCase):
+    """/api/campaigns/ignore and /api/campaigns/focus ("Ignore" and "Mine now")."""
+
+    async def post(self, path, body):
+        response = await self.client.post(path, json=body)
+        return response.status, await response.json()
+
+    async def test_ignored_campaign_leaves_counts_but_stays_listed_and_persists(self):
+        self.add_campaign("alpha", game="Alpha", game_id="10")
+        self.add_campaign("beta", game="Beta", game_id="20")
+        status, body = await self.post("/api/campaigns/ignore", {"campaign_id": "alpha", "ignored": True})
+        self.assertEqual((status, body["ignored"]), (200, ["alpha"]))
+
+        inventory = {c["id"]: c for c in await self.get_json("/api/inventory")}
+        self.assertTrue(inventory["alpha"]["ignored"])  # still listed, for the Ignored section
+        self.assertFalse(inventory["alpha"]["can_start"])
+        self.assertEqual((await self.get_json("/api/games"))["campaign_counts"], {"Beta": 1})
+        self.assertEqual((await self.get_json("/api/status"))["campaigns_count"], 1)
+        self.assertEqual(Settings(SimpleNamespace(dump=False)).ignored_campaigns, {"alpha"})
+        self.assertIs(self.twitch._state, State.GAMES_UPDATE)
+
+        status, body = await self.post("/api/campaigns/ignore", {"campaign_id": "alpha", "ignored": False})
+        self.assertEqual((status, body["ignored"]), (200, []))
+        self.assertEqual((await self.get_json("/api/games"))["campaign_counts"], {"Alpha": 1, "Beta": 1})
+
+    async def test_mine_now_validates_the_campaign_and_ignoring_it_cancels(self):
+        self.add_campaign("active", minutes=10)
+        self.add_campaign("soon", start=NOW + timedelta(hours=2), minutes=0)
+        self.add_campaign("done", minutes=60, claimed=True, end=NOW + timedelta(days=1))
+        for body, expected in (
+            ({"campaign_id": "missing"}, 404),
+            ({"campaign_id": "soon"}, 409),
+            ({"campaign_id": "done"}, 409),
+            ({"campaign_id": 7}, 400),
+            ({}, 200),  # absent/null id clears the choice
+        ):
+            with self.subTest(body=body):
+                self.assertEqual((await self.post("/api/campaigns/focus", body))[0], expected)
+        self.assertEqual(self.twitch.settings.focused_campaign, "")
+
+        status, body = await self.post("/api/campaigns/focus", {"campaign_id": "active"})
+        self.assertEqual((status, body["focused"]), (200, "active"))
+        inventory = {c["id"]: c for c in await self.get_json("/api/inventory")}
+        self.assertTrue(inventory["active"]["focused"])
+        self.assertEqual(Settings(SimpleNamespace(dump=False)).focused_campaign, "active")
+
+        await self.post("/api/campaigns/ignore", {"campaign_id": "active", "ignored": True})
+        self.assertEqual(self.twitch.settings.focused_campaign, "")
+        self.assertEqual((await self.post("/api/campaigns/focus", {"campaign_id": "active"}))[0], 409)
+
+    async def test_invalid_ignore_requests_change_nothing(self):
+        for body in ({"campaign_id": "a"}, {"campaign_id": "", "ignored": True},
+                     {"campaign_id": "a" * 201, "ignored": True}, {"campaign_id": "a", "ignored": "yes"}):
+            with self.subTest(body=body):
+                self.assertEqual((await self.post("/api/campaigns/ignore", body))[0], 400)
+        self.assertEqual(self.twitch.settings.ignored_campaigns, set())
+
+
 class GameCatalogEndpointTests(ApiContractTestCase):
     """/api/games/catalog and /api/games/lookup: Twitch's full game list for the Games page."""
 

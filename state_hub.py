@@ -516,6 +516,13 @@ class StateHub:
                 **data,
                 "active": campaign.active,
                 "upcoming": campaign.upcoming,
+                "ignored": campaign.ignored,
+                "focused": campaign.focused,
+                # "Mine now" needs something left to earn right now
+                "can_start": campaign.active and not campaign.ignored and any(
+                    not drop.is_claimed and drop.current_minutes < drop.required_minutes
+                    for drop in campaign.drops
+                ),
                 "drops": [
                     {**drop, "can_claim": drop["id"] in claimable}
                     for drop in data["drops"]
@@ -523,6 +530,10 @@ class StateHub:
                 ],
             })
         return visible
+
+    def counted_inventory(self) -> list[dict[str, Any]]:
+        """Visible campaigns the user hasn't ignored; these drive totals and the drops view."""
+        return [campaign for campaign in self.get_inventory() if not campaign["ignored"]]
 
     def set_games(self, games: set[Game]) -> None:
         self.available_games = [
@@ -570,7 +581,7 @@ class StateHub:
             "device_code": self.device_code_data,
             "auth_error": self.auth_error,
             "channels_count": len(self.channels_map),
-            "campaigns_count": len(self.get_inventory()),
+            "campaigns_count": len(self.counted_inventory()),
             "websockets": list(self.websockets_status.values()),
         }
 

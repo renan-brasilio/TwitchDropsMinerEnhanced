@@ -54,6 +54,9 @@
   - Only campaigns with someone streaming them right now are found, and those are the only ones that can be mined. Adding a game to your mining order refreshes campaigns right away.
 - **Campaign schedule and reward claiming**:
   - Each campaign shows its start and end dates in your local timezone, plus time remaining.
+  - **Mine now** on a campaign switches to a channel for it and mines it before anything else, even if its game isn't in your mining order or its link status is unknown. The card shows **Mining first**; **Stop** returns to your normal order. The choice clears itself when the campaign is finished or over, and survives restarts.
+  - **Ignore** hides a campaign and the miner never works on it; rewards you already earned are still claimed. Ignored campaigns move to **Ignored campaigns** at the bottom of the tab, where **Restore** brings them back. They don't count in totals or in **Games → With drops**.
+  - **Games → With drops** has a **Refresh** button that checks Twitch again for live drop campaigns.
   - Fully claimed campaigns are hidden. Ended campaigns remain visible only while this account has an eligible, unclaimed reward within Twitch's claim window; only those claimable rewards are listed for ended campaigns.
   - Campaign totals and game-picker counts use the same filtered inventory and update after claims.
   - Toggle **Automatically claim ready drops** in **Settings → Rewards**, or use the synchronized **Auto-claim drops** shortcut in **Campaigns & Rewards**. Enabled by default to preserve existing behavior; saved across backend restarts.

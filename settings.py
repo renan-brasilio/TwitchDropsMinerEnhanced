@@ -27,6 +27,8 @@ class SettingsFile(TypedDict):
     auth_disconnected: bool
     api_port: int
     auto_claim: bool
+    ignored_campaigns: set[str]
+    focused_campaign: str
 
 
 default_settings: SettingsFile = {
@@ -45,6 +47,8 @@ default_settings: SettingsFile = {
     "auth_disconnected": False,
     "api_port": 23432,
     "auto_claim": True,
+    "ignored_campaigns": set(),  # campaign IDs the miner never works on
+    "focused_campaign": "",  # campaign ID to mine first ("Mine now"); "" when none
 }
 
 
@@ -73,6 +77,8 @@ class Settings:
     auth_disconnected: bool
     api_port: int
     auto_claim: bool
+    ignored_campaigns: set[str]
+    focused_campaign: str
 
     PASSTHROUGH = ("_settings", "_args", "_altered")
 

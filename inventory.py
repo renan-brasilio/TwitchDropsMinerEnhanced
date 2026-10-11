@@ -400,7 +400,20 @@ class DropsCampaign:
         return len(self.timed_drops)
 
     @property
+    def ignored(self) -> bool:
+        return self.id in getattr(self._twitch.settings, "ignored_campaigns", ())
+
+    @property
+    def focused(self) -> bool:
+        return self.id == getattr(self._twitch.settings, "focused_campaign", "")
+
+    @property
     def eligible(self) -> bool:
+        if self.ignored:
+            return False
+        if self.focused:
+            # "Mine now" is an explicit choice; it overrides link and badge preferences.
+            return True
         if self.has_badge_or_emote:
             return self._twitch.settings.enable_badges_emotes
         if self.link_unknown:

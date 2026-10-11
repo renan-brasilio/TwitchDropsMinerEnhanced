@@ -91,6 +91,8 @@ class APIServer:
         self._app.router.add_get("/api/channels", self._get_channels)
         self._app.router.add_get("/api/inventory", self._get_inventory)
         self._app.router.add_post("/api/inventory/refresh", self._post_inventory_refresh)
+        self._app.router.add_post("/api/campaigns/ignore", self._post_campaign_ignore)
+        self._app.router.add_post("/api/campaigns/focus", self._post_campaign_focus)
         self._app.router.add_get("/api/games", self._get_games)
         self._app.router.add_get("/api/games/catalog", self._get_games_catalog)
         self._app.router.add_get("/api/games/lookup", self._get_games_lookup)
@@ -148,6 +150,65 @@ class APIServer:
     async def _get_inventory(self, request: web.Request) -> web.Response:
         return self._json_response(self._hub.get_inventory())
 
+    def _campaign_request_id(self, data: Any) -> str | None:
+        if isinstance(data, dict) and isinstance(data.get("campaign_id"), str):
+            campaign_id = data["campaign_id"].strip()
+            if 0 < len(campaign_id) <= 200:
+                return campaign_id
+        return None
+
+    def _publish_campaign_choice(self) -> None:
+        self._twitch.settings.save(force=True)
+        self._hub.broadcast_event("inventory", self._hub.get_inventory())
+        # re-rank games: an ignored campaign stops being mined, a started one goes first
+        self._twitch.change_state(State.GAMES_UPDATE)
+
+    async def _post_campaign_ignore(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+        except Exception:
+            return self._json_response({"error": "Invalid JSON"}, status=400)
+        campaign_id = self._campaign_request_id(data)
+        if campaign_id is None or not isinstance(data.get("ignored"), bool):
+            return self._json_response({"error": "campaign_id (string) and ignored (boolean) are required"}, status=400)
+        settings = self._twitch.settings
+        ignored = set(settings.ignored_campaigns)
+        if data["ignored"]:
+            ignored.add(campaign_id)
+            if settings.focused_campaign == campaign_id:
+                settings.focused_campaign = ""
+        else:
+            ignored.discard(campaign_id)
+        settings.ignored_campaigns = ignored
+        self._publish_campaign_choice()
+        return self._json_response({"status": "success", "ignored": sorted(ignored)})
+
+    async def _post_campaign_focus(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+        except Exception:
+            return self._json_response({"error": "Invalid JSON"}, status=400)
+        settings = self._twitch.settings
+        if isinstance(data, dict) and data.get("campaign_id") is None:
+            settings.focused_campaign = ""  # back to the normal priority order
+            self._publish_campaign_choice()
+            return self._json_response({"status": "success", "focused": None})
+        campaign_id = self._campaign_request_id(data)
+        if campaign_id is None:
+            return self._json_response({"error": "campaign_id must be a string or null"}, status=400)
+        campaign = next((c for c in self._twitch.inventory if c.id == campaign_id), None)
+        if campaign is None:
+            return self._json_response({"error": "Campaign is no longer available"}, status=404)
+        if campaign.ignored:
+            return self._json_response({"error": "Restore this campaign before mining it"}, status=409)
+        if not campaign.active:
+            return self._json_response({"error": "This campaign hasn't started yet"}, status=409)
+        if campaign.finished or campaign.remaining_minutes <= 0:
+            return self._json_response({"error": "Nothing left to earn in this campaign"}, status=409)
+        settings.focused_campaign = campaign_id
+        self._publish_campaign_choice()
+        return self._json_response({"status": "success", "focused": campaign_id,
+                                    "message": f"Mining {campaign.game.name}: {campaign.name} first"})
 
     async def _post_inventory_refresh(self, request: web.Request) -> web.Response:
         self._hub.add_log("INFO", "Refreshing inventory and drop campaigns from Twitch...")
@@ -177,7 +238,7 @@ class APIServer:
 
         campaign_counts: dict[str, int] = {}
         box_art: dict[str, str] = {}
-        for camp in self._hub.get_inventory():
+        for camp in self._hub.counted_inventory():
             c_game = camp.get("game")
             if c_game:
                 games_dict[c_game] = {"name": c_game, "discovered": True}
@@ -217,7 +278,7 @@ class APIServer:
 
     def _campaign_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}
-        for camp in self._hub.get_inventory():
+        for camp in self._hub.counted_inventory():
             if camp.get("game"):
                 key = camp["game"].casefold()
                 counts[key] = counts.get(key, 0) + 1

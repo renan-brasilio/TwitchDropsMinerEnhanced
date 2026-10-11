@@ -302,6 +302,39 @@ class MiningLoopSelectionTests(SelectionTestCase):
 
         self.assertEqual(await self.select(), (["Beta", "Alpha"], 2))
 
+    async def test_mine_now_goes_first_even_outside_the_list_and_unlinked(self):
+        for game in (ALPHA, BETA):
+            self.add_campaign(game)
+        gamma = self.add_campaign(GAMMA, linked=False)
+        self.live(ALPHA, (1, 1000))
+        self.live(GAMMA, (3, 5))
+        self.settings.priority = ["Alpha", "Beta"]  # priority-only, Gamma not listed
+        self.settings.focused_campaign = gamma.id
+
+        wanted, watching = await self.select()
+        self.assertEqual((wanted, watching), (["Gamma", "Alpha", "Beta"], 3))
+        self.assertIs(self.twitch.get_active_campaign(), gamma)
+
+    async def test_ignored_campaign_is_never_mined_even_if_prioritized_and_linked(self):
+        alpha = self.add_campaign(ALPHA)
+        self.add_campaign(BETA)
+        self.live(ALPHA, (1, 1000))
+        self.live(BETA, (2, 5))
+        self.settings.priority = ["Alpha", "Beta"]
+        self.settings.ignored_campaigns = {alpha.id}
+
+        self.assertEqual(await self.select(), (["Beta"], 2))
+
+    async def test_finished_mine_now_choice_clears_and_normal_order_resumes(self):
+        done = self.add_campaign(ALPHA, watched=60)
+        next(iter(done.drops)).is_claimed = True
+        self.add_campaign(BETA)
+        self.live(BETA, (2, 5))
+        self.settings.focused_campaign = done.id
+
+        self.assertEqual(await self.select(), (["Beta"], 2))
+        self.assertEqual(self.settings.focused_campaign, "")
+
     async def test_ending_soonest_orders_unprioritized_games_by_campaign_end(self):
         self.add_campaign(ALPHA, end=NOW + timedelta(days=3))
         self.add_campaign(BETA, end=NOW + timedelta(days=1))

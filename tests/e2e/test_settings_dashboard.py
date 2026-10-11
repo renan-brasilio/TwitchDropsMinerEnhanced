@@ -71,8 +71,10 @@ class ConnectedAccountTests(DashboardTestCase):
         expect(self.page.locator("#btnDisconnect")).to_be_hidden()
         for name in MINING_CONTROLS:  # Switch Streamer/Refresh live in inactive tabs
             with self.subTest(control=name):
-                control = self.page.get_by_role("button", name=name, exact=True, include_hidden=True)
-                expect(control).to_be_disabled()
+                controls = self.page.get_by_role("button", name=name, exact=True, include_hidden=True)
+                expect(controls.first).to_be_attached()
+                for control in controls.all():  # e.g. Refresh exists in Campaigns and Games
+                    expect(control).to_be_disabled()
 
     def test_confirmed_disconnect_shows_signed_out_state_that_survives_restart(self):
         self.open_dashboard()

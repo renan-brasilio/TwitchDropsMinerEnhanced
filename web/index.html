@@ -720,6 +720,15 @@
       margin-bottom: 10px;
     }
 
+    .campaign-item.campaign-focused { border-color: var(--accent); }
+
+    .ignored-list { list-style: none; margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .ignored-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      font-size: 13px; padding: 6px 10px; background: var(--surface-subtle);
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+    }
+
     .campaign-meta-row {
       display: flex;
       justify-content: space-between;
@@ -930,6 +939,11 @@
         <div id="campaignsList">
           <p style="color: var(--text-muted); font-size: 13px;">Loading inventory...</p>
         </div>
+        <details id="ignoredCampaigns" hidden style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
+          <summary style="cursor: pointer; color: var(--text-muted); font-size: 13px;">Ignored campaigns (<span id="ignoredCount">0</span>)</summary>
+          <p class="form-help">Never mined. Rewards you already earned are still claimed.</p>
+          <ul id="ignoredList" class="ignored-list"></ul>
+        </details>
       </div>
     </div>
 
@@ -947,6 +961,10 @@
               <button type="button" role="tab" id="gamesViewDrops" aria-selected="true" onclick="setGamesView('drops')">With drops <span id="dropsGamesCount"></span></button>
               <button type="button" role="tab" id="gamesViewAll" aria-selected="false" onclick="setGamesView('all')">All games</button>
             </div>
+            <button type="button" class="btn" id="btnGamesRefresh" onclick="refreshDropGames()" title="Check Twitch again for live drop campaigns">
+              <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              <span>Refresh</span>
+            </button>
           </div>
           <p id="gamesStatus" role="status" class="form-help" style="margin: 0 0 12px;"></p>
           <div id="gamesGrid" class="games-grid" aria-labelledby="gamesBrowserHeading"></div>
@@ -1193,8 +1211,8 @@
 
     function updateControlButtons() {
       const blocked = Boolean(authPending || cachedState.auth_pending) || !cachedState.is_logged_in || cachedState.auth_disconnected || controlPending;
-      document.querySelectorAll('button[onclick^="controlAction"], button[onclick^="claimDrops"], button[onclick^="fetchInventory"]').forEach(btn => {
-        btn.disabled = blocked;
+      document.querySelectorAll('button[onclick^="controlAction"], button[onclick^="claimDrops"], button[onclick^="fetchInventory"], button[onclick^="refreshDropGames"]').forEach(btn => {
+        btn.disabled = blocked || (btn.id === 'btnGamesRefresh' && dropsRefreshing);
       });
       document.querySelectorAll('button[onclick^="watchChannel"]').forEach(btn => {
         btn.disabled = blocked || btn.dataset.online !== 'true';
@@ -1576,15 +1594,42 @@
       return `${hours}h remaining`;
     }
 
-    function renderInventory(campaigns) {
+    function campaignActions(c) {
+      const id = escapeHtml(c.id);
+      const focus = c.focused
+        ? `<span class="pill pill-active" title="The miner works on this campaign before anything else until it's done.">Mining first</span>
+           <button class="btn" style="padding: 2px 8px; font-size: 11px;" data-campaign="${id}" onclick="focusCampaign(null)">Stop</button>`
+        : (c.can_start
+          ? `<button class="btn btn-primary" style="padding: 2px 8px; font-size: 11px;" data-campaign="${id}" onclick="focusCampaign(this.dataset.campaign)" title="Switch to a channel for this campaign and mine it before anything else. Overrides your mining order and link status.">Mine now</button>`
+          : '');
+      return `${focus}
+        <button class="btn" style="padding: 2px 8px; font-size: 11px;" data-campaign="${id}" onclick="ignoreCampaign(this.dataset.campaign, true)" title="Hide this campaign and never mine it. Rewards you already earned are still claimed.">Ignore</button>`;
+    }
+
+    function renderIgnoredCampaigns(ignored) {
+      const section = document.getElementById('ignoredCampaigns');
+      section.hidden = ignored.length === 0;
+      document.getElementById('ignoredCount').textContent = ignored.length;
+      document.getElementById('ignoredList').innerHTML = ignored.map(c => `
+        <li class="ignored-row">
+          <span><span class="campaign-game-tag">${escapeHtml(c.game)}</span> ${escapeHtml(c.name)}</span>
+          <button class="btn" style="padding: 2px 8px; font-size: 11px;" data-campaign="${escapeHtml(c.id)}" onclick="ignoreCampaign(this.dataset.campaign, false)">Restore</button>
+        </li>`).join('');
+    }
+
+    function renderInventory(allCampaigns) {
       const container = document.getElementById('campaignsList');
-      document.getElementById('statCampaigns').innerText = (campaigns || []).length;
-      if (!campaigns || campaigns.length === 0) {
+      // the started campaign leads; ignored ones move to their own list
+      const campaigns = (allCampaigns || []).filter(c => !c.ignored).sort((a, b) => (b.focused === true) - (a.focused === true));
+      renderIgnoredCampaigns((allCampaigns || []).filter(c => c.ignored));
+      document.getElementById('statCampaigns').innerText = campaigns.length;
+      if (campaigns.length === 0) {
         container.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No active campaigns found on account.</p>';
+        updateControlButtons();
         return;
       }
       container.innerHTML = campaigns.map(c => `
-        <div class="campaign-item">
+        <div class="campaign-item${c.focused ? ' campaign-focused' : ''}" data-campaign-id="${escapeHtml(c.id)}">
           <div class="campaign-meta-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
             <div style="display: flex; align-items: center; gap: 12px;">
               ${c.box_art ? `<img src="${escapeHtml(c.box_art)}" alt="${escapeHtml(c.game)}" style="width: 44px; height: 58px; border-radius: 4px; object-fit: cover; border: 1px solid var(--border); flex-shrink: 0; background: var(--surface);">` : ''}
@@ -1597,7 +1642,8 @@
                 </div>
               </div>
             </div>
-            <div style="display: flex; gap: 8px; align-items: center;">
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end;">
+              ${campaignActions(c)}
               <button class="btn" style="padding: 2px 8px; font-size: 11px;" data-game="${escapeHtml(c.game)}" onclick="addGameToPriority(this.dataset.game)">+ Prioritize</button>
               ${c.link_unknown
                 ? `<span class="pill pill-idle" title="Twitch no longer reports whether your account is linked for this campaign. It is mined only while ${escapeHtml(c.game)} is in your mining order on the Games page.">Link unknown</span>`
@@ -1610,9 +1656,9 @@
             ${(c.drops || []).map(d => `
               <div class="drop-subrow" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: var(--surface); border-radius: 4px; margin-bottom: 6px; font-size: 12px;">
                 <div style="display: flex; align-items: center; gap: 10px;">
-                  ${d.image_url ? `<img src="${d.image_url}" alt="${d.name}" style="width: 34px; height: 34px; border-radius: 4px; object-fit: cover; border: 1px solid var(--border); flex-shrink: 0; background: var(--surface-subtle);">` : '<div style="width: 34px; height: 34px; border-radius: 4px; background: var(--surface-subtle); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--text-muted); flex-shrink: 0;">Item</div>'}
+                  ${d.image_url ? `<img src="${escapeHtml(d.image_url)}" alt="${escapeHtml(d.name)}" style="width: 34px; height: 34px; border-radius: 4px; object-fit: cover; border: 1px solid var(--border); flex-shrink: 0; background: var(--surface-subtle);">` : '<div style="width: 34px; height: 34px; border-radius: 4px; background: var(--surface-subtle); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--text-muted); flex-shrink: 0;">Item</div>'}
                   <div>
-                    <div style="font-weight: 500;">${d.name}</div>
+                    <div style="font-weight: 500;">${escapeHtml(d.name)}</div>
                     <div class="mono" style="color: var(--text-muted); font-size: 11px;">${d.current_minutes} / ${d.required_minutes} min</div>
                   </div>
                 </div>
@@ -1624,8 +1670,32 @@
           </div>
         </div>
       `).join('');
-      document.getElementById('statCampaigns').innerText = campaigns.length;
       updateControlButtons();
+    }
+
+    async function campaignChoice(path, body, success) {
+      try {
+        const data = await responseData(await apiFetch(path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }));
+        showToast(data.message || success, 'success');
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+      await pollFullState();
+      loadPriorities();
+    }
+
+    function focusCampaign(campaignId) {
+      return campaignChoice('/api/campaigns/focus', { campaign_id: campaignId },
+        campaignId ? 'Mining this campaign first' : 'Back to your mining order');
+    }
+
+    function ignoreCampaign(campaignId, ignored) {
+      return campaignChoice('/api/campaigns/ignore', { campaign_id: campaignId, ignored },
+        ignored ? 'Campaign ignored' : 'Campaign restored');
     }
 
     function appendTerminalLog(entry) {
@@ -2073,6 +2143,8 @@
       dropsTab.setAttribute('aria-selected', String(!searching && games.view === 'drops'));
       allTab.setAttribute('aria-selected', String(!searching && games.view === 'all'));
       dropsTab.disabled = allTab.disabled = searching;
+      // Refresh belongs to the drops view; the catalog views fetch on their own.
+      document.getElementById('btnGamesRefresh').hidden = searching || games.view !== 'drops';
 
       const grid = document.getElementById('gamesGrid');
       grid.replaceChildren(...games.items.map(gameTile));
@@ -2093,6 +2165,31 @@
       more.disabled = games.loading;
       more.textContent = games.error ? 'Try again' : (games.loading ? 'Loading…' : 'Load more games');
       updateTypedGameButton();
+    }
+
+    let dropsRefreshing = false;
+
+    async function refreshDropGames() {
+      if (dropsRefreshing || !requireAccount()) return;
+      const button = document.getElementById('btnGamesRefresh');
+      dropsRefreshing = true;
+      button.disabled = true;
+      button.querySelector('span').textContent = 'Refreshing…';
+      document.getElementById('gamesStatus').textContent = 'Checking Twitch for live drop campaigns…';
+      try {
+        const data = await responseData(await apiFetch('/api/inventory/refresh', { method: 'POST' }));
+        renderInventory(data.campaigns || []);
+        await loadPriorities(true);
+        const count = dropGames().length;
+        showToast(`${count} game${count === 1 ? '' : 's'} with drops right now`, 'success');
+      } catch (err) {
+        showToast('Failed to refresh drops: ' + err.message, 'error');
+        renderGamesGrid();
+      } finally {
+        dropsRefreshing = false;
+        button.querySelector('span').textContent = 'Refresh';
+        updateControlButtons();  // stays disabled if the account went away meanwhile
+      }
     }
 
     function updateTypedGameButton() {
