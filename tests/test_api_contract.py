@@ -21,6 +21,7 @@ from inventory import DropsCampaign
 from settings import Settings
 from twitch import Twitch
 from utils import Game
+from version import __version__
 
 NOW = datetime(2026, 10, 11, 12, tzinfo=timezone.utc)
 API_KEY = "synthetic-api-key-5c1e"
@@ -561,10 +562,11 @@ class WebSocketInitTests(ApiContractTestCase):
             init = message["data"]
             for key in ("state", "status_text", "is_logged_in", "user_id", "username",
                         "auth_disconnected", "auth_pending", "active_drop", "active_channel",
-                        "device_code", "channels_count", "campaigns_count", "websockets"):
+                        "device_code", "channels_count", "campaigns_count", "websockets", "version"):
                 with self.subTest(key=key):
                     self.assertEqual(init[key], status[key])
             self.assertEqual(init["campaigns_count"], 2)
+            self.assertEqual(status["version"], __version__)  # Settings → About shows it
             self.assertEqual(init["inventory"], inventory)
             self.assertEqual(init["channels"], channels)
             self.assertEqual(init["settings"], {

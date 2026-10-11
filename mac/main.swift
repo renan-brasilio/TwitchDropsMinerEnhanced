@@ -59,6 +59,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         set { UserDefaults.standard.set(newValue, forKey: "keepRunningOnClose") }
     }
 
+    var autoCheckUpdates: Bool {
+        get { UserDefaults.standard.object(forKey: "autoCheckUpdates") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "autoCheckUpdates") }
+    }
+    var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    }
+    var updateState: UpdateState = .idle {
+        didSet {
+            buildMenu()
+            setupMainMenu() // the app menu carries the same update item
+            publishNativeSettings()
+        }
+    }
+    var updateTimer: Timer?
+
     // State cache
     var status = MinerStatus()
     var hasLoadedDashboard: Bool = false
@@ -90,6 +106,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         pollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
             self?.pollStatus()
         }
+
+        // 7. Look for a newer release now and once a day (only when enabled)
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { [weak self] _ in
+            guard let self, self.autoCheckUpdates else { return }
+            self.checkForUpdates(userInitiated: false)
+        }
+        if autoCheckUpdates { checkForUpdates(userInitiated: false) }
 
         // Make app active and show window
         NSApp.activate(ignoringOtherApps: true)
@@ -167,6 +190,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
             keepRunningOnClose: keepRunningOnClose,
             menuBarStyle: menuBarStyle,
             connection: connection,
+            app: .init(version: appVersion, autoCheckUpdates: autoCheckUpdates, update: updateState),
             error: error
         )
         guard let script = NativeSettingsPayload.script(for: settings) else { return }
@@ -187,12 +211,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
             showConnectionSettings()
         case .connection(let request):
             applyConnection(request)
-        case .preferences(let keepRunning, let style):
+        case .preferences(let keepRunning, let style, let autoCheck):
             if let keepRunning { keepRunningOnClose = keepRunning }
             if let style { menuBarStyle = style }
+            if let autoCheck {
+                autoCheckUpdates = autoCheck
+                if autoCheck, case .idle = updateState { checkForUpdates(userInitiated: false) }
+            }
             setupMainMenu()
             updateUI()
             publishNativeSettings()
+        case .update(.check):
+            checkForUpdates(userInitiated: false) // the About section shows the result
+        case .update(.install):
+            installUpdate()
         }
     }
 
@@ -213,6 +245,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     @objc func showSettings() {
         showMainWindow()
         webView.evaluateJavaScript("switchTab('settings')", completionHandler: nil)
+    }
+
+    @objc func showAbout() {
+        showMainWindow()
+        webView.evaluateJavaScript("switchTab('settings'); document.getElementById('aboutSettings')?.scrollIntoView()", completionHandler: nil)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -262,7 +299,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         // App Menu
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(NSMenuItem(title: "About Twitch Drops Miner Enhanced", action: nil, keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem(title: "About Twitch Drops Miner Enhanced", action: #selector(showAbout), keyEquivalent: ""))
+        appMenu.addItem(StatusMenuBuilder.updateItem(for: updateState, target: self))
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ","))
         appMenu.addItem(NSMenuItem(title: "Connection Settings...", action: #selector(showConnectionSettings), keyEquivalent: ""))
@@ -348,6 +386,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
             isRemote: isRemote,
             menuBarStyle: menuBarStyle,
             keepRunningOnClose: keepRunningOnClose,
+            update: updateState,
             target: self
         )
     }
@@ -580,6 +619,122 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         }
     }
 
+    // MARK: - Updates (GitHub Releases)
+    @objc func checkForUpdatesAction() { checkForUpdates(userInitiated: true) }
+    @objc func installUpdateAction() { installUpdate() }
+
+    /// Asks GitHub for the latest release. Menu-initiated checks report the result in an alert;
+    /// automatic and Settings checks only update the menus and Settings → About.
+    func checkForUpdates(userInitiated: Bool) {
+        switch updateState {
+        case .checking, .installing: return
+        default: break
+        }
+        updateState = .checking
+        var request = URLRequest(url: ProjectLinks.latestReleaseAPI)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 15
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let release = (error == nil && code == 200) ? data.flatMap(Release.parse) : nil
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if let release {
+                    self.updateState = Release.isNewer(release.version, than: self.appVersion)
+                        ? .available(release) : .upToDate(latest: release.version)
+                } else if let error {
+                    self.updateState = .failed("Couldn't reach GitHub: \(error.localizedDescription)")
+                } else {
+                    self.updateState = .failed("GitHub returned no installable release (HTTP \(code)).")
+                }
+                if userInitiated { self.showUpdateAlert() }
+            }
+        }.resume()
+    }
+
+    func showUpdateAlert() {
+        let alert = NSAlert()
+        switch updateState {
+        case .available(let release):
+            alert.messageText = "Version \(release.version) is available"
+            alert.informativeText = "You have \(appVersion). The app downloads the update from GitHub, checks it, and restarts."
+            alert.addButton(withTitle: "Install and Restart")
+            alert.addButton(withTitle: "Release Notes")
+            alert.addButton(withTitle: "Later")
+            showMainWindow()
+            switch alert.runModal() {
+            case .alertFirstButtonReturn: installUpdate()
+            case .alertSecondButtonReturn: NSWorkspace.shared.open(release.pageURL)
+            default: break
+            }
+            return
+        case .upToDate(let latest):
+            alert.messageText = "You're up to date"
+            alert.informativeText = "Version \(appVersion) is the latest (v\(latest))."
+        case .failed(let message):
+            alert.alertStyle = .warning
+            alert.messageText = "Couldn't check for updates"
+            alert.informativeText = message
+        default:
+            return
+        }
+        showMainWindow()
+        alert.runModal()
+    }
+
+    /// Downloads the release archive, verifies it, then quits so a helper script can swap the
+    /// bundle and relaunch. Any failure leaves the current app untouched.
+    func installUpdate() {
+        guard let release = updateState.availableRelease else { return }
+        let installer = UpdateInstaller(bundleURL: Bundle.main.bundleURL,
+                                        bundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+        do {
+            try installer.checkReplaceable()
+        } catch {
+            updateState = .failed((error as? UpdateError)?.message ?? error.localizedDescription)
+            return
+        }
+        updateState = .installing(release)
+        URLSession.shared.downloadTask(with: release.archiveURL) { [weak self] location, response, error in
+            let work = FileManager.default.temporaryDirectory
+                .appendingPathComponent("TwitchDropsMinerEnhanced-update-\(UUID().uuidString)", isDirectory: true)
+            let result: Result<URL, UpdateError>
+            do {
+                guard error == nil, let location, (response as? HTTPURLResponse)?.statusCode == 200 else {
+                    throw UpdateError(message: "Download failed: \(error?.localizedDescription ?? "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")")
+                }
+                try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+                let archive = work.appendingPathComponent("update.zip")
+                try FileManager.default.moveItem(at: location, to: archive)
+                result = .success(try installer.prepare(archive: archive, release: release, workDir: work))
+            } catch {
+                result = .failure(error as? UpdateError ?? UpdateError(message: error.localizedDescription))
+            }
+            DispatchQueue.main.async {
+                self?.finishInstall(result, installer: installer, backup: work.appendingPathComponent("previous.app"))
+            }
+        }.resume()
+    }
+
+    func finishInstall(_ result: Result<URL, UpdateError>, installer: UpdateInstaller, backup: URL) {
+        switch result {
+        case .failure(let error):
+            updateState = .failed(error.message)
+        case .success(let newApp):
+            let swap = Process()
+            swap.executableURL = URL(fileURLWithPath: "/bin/sh")
+            swap.arguments = ["-c", installer.swapScript(
+                waitingFor: ProcessInfo.processInfo.processIdentifier, newApp: newApp, backup: backup)]
+            swap.standardOutput = FileHandle.nullDevice
+            swap.standardError = FileHandle.nullDevice
+            do {
+                try swap.run()
+                NSApp.terminate(nil)
+            } catch {
+                updateState = .failed("Couldn't start the installer: \(error.localizedDescription)")
+            }
+        }
+    }
 
     // MARK: - Connection Settings Modal (Local vs Remote VPS)
     @objc func showConnectionSettings() {

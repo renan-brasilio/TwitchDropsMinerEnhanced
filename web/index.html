@@ -727,6 +727,15 @@
     .option-toggle input:disabled { cursor: default; }
     .campaign-options-help { margin: 4px 0 16px; }
 
+    .about-versions { display: flex; flex-wrap: wrap; gap: 8px 32px; margin: 12px 0; }
+    .about-versions dt { font-size: 12px; color: var(--text-muted); }
+    .about-versions dd { font-family: var(--font-mono); font-size: 14px; }
+    .update-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 8px 0; }
+    #updateStatus.update-failed { color: var(--status-error); }
+    #updateStatus.update-available { color: var(--status-active); }
+    .about-links { display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0 4px; font-size: 13px; }
+    #aboutSettings a { color: var(--accent); }
+
     .ignored-list { list-style: none; margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
     .ignored-row {
       display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -1109,6 +1118,35 @@
           <p class="form-help">Saving reloads the dashboard from the chosen miner. If it can't be reached, use <strong>Connection Settings…</strong> on the offline screen or in the menu bar.</p>
           <p id="connectionStatus" role="status" class="form-help"></p>
         </section>
+        <section id="aboutSettings" aria-labelledby="aboutHeading" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border);">
+          <h3 class="panel-title" id="aboutHeading">About</h3>
+          <dl class="about-versions">
+            <div id="aboutAppRow" hidden><dt>Mac app</dt><dd id="aboutAppVersion"></dd></div>
+            <div><dt>Miner</dt><dd id="aboutMinerVersion">–</dd></div>
+          </dl>
+          <div id="appUpdates" hidden>
+            <div class="update-row">
+              <span id="updateStatus" role="status"></span>
+              <a id="updateNotesLink" hidden target="_blank" rel="noopener noreferrer">Release notes</a>
+            </div>
+            <div class="update-row">
+              <button class="btn" id="btnCheckUpdates" onclick="requestUpdate('check')">Check for updates</button>
+              <button class="btn btn-primary" id="btnInstallUpdate" hidden onclick="requestUpdate('install')">Install and restart</button>
+              <label class="option-toggle">
+                <input type="checkbox" id="autoCheckUpdatesToggle" onchange="setAutoCheckUpdates(this.checked)">
+                Check automatically every day
+              </label>
+            </div>
+            <p class="form-help">Updates install the Mac app from GitHub Releases after checking the download's checksum. The miner updates separately where it runs: redeploy the Docker image on a server, or update the folder it runs from on this Mac.</p>
+            <p class="form-help" id="minerUpdateHint" hidden></p>
+          </div>
+          <p class="about-links">
+            <a href="https://github.com/renan-brasilio/TwitchDropsMinerEnhanced" target="_blank" rel="noopener noreferrer">GitHub repository</a>
+            <a href="https://github.com/renan-brasilio/TwitchDropsMinerEnhanced/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+            <a href="https://github.com/renan-brasilio/TwitchDropsMinerEnhanced/issues" target="_blank" rel="noopener noreferrer">Report an issue</a>
+          </p>
+          <p class="form-help">A fork of <a href="https://github.com/DevilXD/TwitchDropsMiner" target="_blank" rel="noopener noreferrer">DevilXD/TwitchDropsMiner</a>.</p>
+        </section>
       </div>
     </div>
 
@@ -1137,6 +1175,8 @@
     let controlPending = false;
     let autoClaimPending = false;
     let autoSelectPending = false;
+    let appInfo = null;      // { version, autoCheckUpdates, update } from the Mac app; null in a browser
+    let minerVersion = null; // from the miner's status
     let lastOtherPriorityMode = '1'; // restored when "Mine only selected games" is turned off
     let savedAutoClaim = null;
     let settingsRevision = 0;
@@ -1310,6 +1350,8 @@
     function applyNativeSettings(settings, acknowledged = false) {
       if (!settings || typeof settings.keepRunningOnClose !== 'boolean' || !['iconOnly', 'currentMining', 'timeLeft', 'percentage', 'full'].includes(settings.menuBarStyle)) return;
       nativePreferences = { keepRunningOnClose: settings.keepRunningOnClose, menuBarStyle: settings.menuBarStyle, connection: settings.connection || nativePreferences?.connection };
+      if (settings.app && typeof settings.app.version === 'string') appInfo = settings.app;
+      renderAbout();
       if (!document.getElementById('nativeApplicationSettings')) return;
       const connectionReply = acknowledged && Boolean(nativePending.connection);
       if (!acknowledged && Object.keys(nativePending).length) return;
@@ -1423,6 +1465,80 @@
       applyNativeSettings(event.detail, true);
     });
 
+    // ---- Settings → About: versions, links and Mac app updates -------------------------------
+    function compareVersions(a, b) {
+      const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number);
+      for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const diff = (pa[i] || 0) - (pb[i] || 0);
+        if (diff) return diff;
+      }
+      return 0;
+    }
+
+    function minerLocation() {
+      const connection = nativePreferences?.connection;
+      if (!connection) return '';
+      if (connection.mode !== 'remote') return ' on this Mac';
+      try { return ` on ${new URL(connection.serverURL).host}`; } catch { return ' on the server'; }
+    }
+
+    function renderAbout() {
+      const where = minerLocation();
+      document.getElementById('aboutMinerVersion').textContent = minerVersion ? `v${minerVersion}${where}` : '–';
+      document.getElementById('aboutAppRow').hidden = !appInfo;
+      document.getElementById('appUpdates').hidden = !appInfo;
+      if (!appInfo) return;
+      document.getElementById('aboutAppVersion').textContent = `v${appInfo.version}`;
+
+      const update = appInfo.update || { state: 'idle' };
+      const latest = update.latestVersion;
+      const status = document.getElementById('updateStatus');
+      status.textContent = {
+        idle: 'Not checked yet.',
+        checking: 'Checking GitHub for updates…',
+        upToDate: `Up to date. v${latest} is the latest release.`,
+        available: `Version ${latest} is available.`,
+        installing: `Installing v${latest}. The app restarts when it's done.`,
+        failed: update.message || 'The update check failed.',
+      }[update.state] || 'Not checked yet.';
+      status.className = update.state === 'failed' ? 'update-failed' : (update.state === 'available' ? 'update-available' : '');
+      const notes = document.getElementById('updateNotesLink');
+      notes.hidden = !update.releaseURL;
+      if (update.releaseURL) notes.href = update.releaseURL;
+
+      const busy = update.state === 'checking' || update.state === 'installing';
+      document.getElementById('btnCheckUpdates').disabled = busy;
+      const install = document.getElementById('btnInstallUpdate');
+      install.hidden = update.state !== 'available' && update.state !== 'installing';
+      install.disabled = busy;
+      install.textContent = `Install v${latest} and restart`;
+      const auto = document.getElementById('autoCheckUpdatesToggle');
+      auto.checked = appInfo.autoCheckUpdates === true;
+      auto.disabled = false;
+
+      // The app update never touches the miner, which may run elsewhere.
+      const hint = document.getElementById('minerUpdateHint');
+      const minerBehind = Boolean(latest && minerVersion && compareVersions(latest, minerVersion) > 0);
+      hint.hidden = !minerBehind;
+      hint.textContent = minerBehind ? `The miner${where} runs v${minerVersion}; v${latest} is out.` : '';
+    }
+
+    function postToApp(message, controls) {
+      const handler = window.webkit?.messageHandlers?.settings;
+      if (!handler || !appInfo) return;
+      controls.forEach(id => { document.getElementById(id).disabled = true; });
+      handler.postMessage(message);
+      setTimeout(renderAbout, 5000); // the app's reply re-renders sooner; this undoes a lost one
+    }
+
+    function requestUpdate(action) {
+      postToApp({ update: action }, ['btnCheckUpdates', 'btnInstallUpdate']);
+    }
+
+    function setAutoCheckUpdates(enabled) {
+      postToApp({ autoCheckUpdates: enabled }, ['autoCheckUpdatesToggle']);
+    }
+
     function initWebSocket() {
       try {
         const loc = window.location;
@@ -1523,6 +1639,10 @@
 
       if (Array.isArray(state.channels)) document.getElementById('statChannels').innerText = state.channels.length;
       document.getElementById('statCampaigns').innerText = state.campaigns_count ?? (state.inventory || []).length;
+      if (state.version) {
+        minerVersion = state.version;
+        renderAbout();
+      }
       
       let topicCount = 0;
       (state.websockets || []).forEach(wsItem => {

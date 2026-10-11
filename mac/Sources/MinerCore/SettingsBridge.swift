@@ -7,7 +7,13 @@ enum BridgeMessage {
     /// The Settings page switches the miner connection.
     case connection([String: Any])
     /// The Settings page changes app preferences; absent or invalid values leave them unchanged.
-    case preferences(keepRunningOnClose: Bool?, menuBarStyle: MenuBarStyle?)
+    case preferences(keepRunningOnClose: Bool?, menuBarStyle: MenuBarStyle?, autoCheckUpdates: Bool?)
+    /// Settings → About asks to check for, or install, an app update.
+    case update(UpdateAction)
+
+    enum UpdateAction: String {
+        case check, install
+    }
 
     /// Decodes a script message, or returns nil when it must be ignored.
     /// Only the offline recovery request is accepted from outside the miner's origin (that page is
@@ -22,8 +28,12 @@ enum BridgeMessage {
         if let request = settings["connection"] as? [String: Any] {
             return .connection(request)
         }
+        if let raw = settings["update"] {
+            return (raw as? String).flatMap(UpdateAction.init(rawValue:)).map(BridgeMessage.update)
+        }
         let style = (settings["menuBarStyle"] as? String).flatMap(MenuBarStyle.init(rawValue:))
-        return .preferences(keepRunningOnClose: settings["keepRunningOnClose"] as? Bool, menuBarStyle: style)
+        return .preferences(keepRunningOnClose: settings["keepRunningOnClose"] as? Bool, menuBarStyle: style,
+                            autoCheckUpdates: settings["autoCheckUpdates"] as? Bool)
     }
 }
 
@@ -31,7 +41,7 @@ enum BridgeMessage {
 enum NativeSettingsPayload {
     /// The API key never leaves native storage; the page only learns whether one is saved.
     static func make(keepRunningOnClose: Bool, menuBarStyle: MenuBarStyle,
-                     connection: ConnectionSettings, error: String? = nil) -> [String: Any] {
+                     connection: ConnectionSettings, app: AppInfo, error: String? = nil) -> [String: Any] {
         var settings: [String: Any] = [
             "keepRunningOnClose": keepRunningOnClose,
             "menuBarStyle": menuBarStyle.rawValue,
@@ -39,10 +49,22 @@ enum NativeSettingsPayload {
                 "mode": connection.isRemote ? "remote" : "local",
                 "serverURL": connection.isRemote ? connection.effectiveURL.absoluteString : "",
                 "hasApiKey": !connection.apiKey.isEmpty
+            ] as [String: Any],
+            "app": [
+                "version": app.version,
+                "autoCheckUpdates": app.autoCheckUpdates,
+                "update": app.update.payload
             ] as [String: Any]
         ]
         if let error { settings["error"] = error }
         return settings
+    }
+
+    /// The Mac app's own version and update state (the miner reports its version separately).
+    struct AppInfo {
+        let version: String
+        let autoCheckUpdates: Bool
+        let update: UpdateState
     }
 
     /// JavaScript that stores the payload in `window.nativeSettings` and dispatches the event.

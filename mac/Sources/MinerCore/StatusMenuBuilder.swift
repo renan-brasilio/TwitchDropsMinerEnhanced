@@ -15,6 +15,8 @@ enum MenuActions {
     static let showConnectionSettings = Selector(("showConnectionSettings"))
     static let toggleKeepRunning = Selector(("toggleKeepRunningOnClose"))
     static let changeMenuBarStyle = Selector(("changeMenuBarStyle:"))
+    static let checkForUpdates = Selector(("checkForUpdatesAction"))
+    static let installUpdate = Selector(("installUpdateAction"))
     static let quit = Selector(("quitApp"))
 }
 
@@ -25,6 +27,7 @@ enum StatusMenuBuilder {
         isRemote: Bool,
         menuBarStyle: MenuBarStyle,
         keepRunningOnClose: Bool,
+        update: UpdateState = .idle,
         target: AnyObject? = nil
     ) -> NSMenu {
         let menu = NSMenu()
@@ -156,10 +159,29 @@ enum StatusMenuBuilder {
         menu.addItem(displayMenuItem)
 
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(updateItem(for: update, target: target))
+        menu.addItem(NSMenuItem.separator())
         let quitItem = NSMenuItem(title: "Quit", action: MenuActions.quit, keyEquivalent: "q")
         quitItem.target = target
         menu.addItem(quitItem)
 
         return menu
+    }
+
+    /// "Check for Updates…", or the install action once a newer release is known.
+    static func updateItem(for update: UpdateState, target: AnyObject?) -> NSMenuItem {
+        let item: NSMenuItem
+        switch update {
+        case .available(let release):
+            item = NSMenuItem(title: "Install Update v\(release.version)…", action: MenuActions.installUpdate, keyEquivalent: "")
+        case .installing(let release):
+            item = NSMenuItem(title: "Installing v\(release.version)…", action: nil, keyEquivalent: "")
+        case .checking:
+            item = NSMenuItem(title: "Checking for Updates…", action: nil, keyEquivalent: "")
+        default:
+            item = NSMenuItem(title: "Check for Updates…", action: MenuActions.checkForUpdates, keyEquivalent: "")
+        }
+        item.target = item.action == nil ? nil : target
+        return item
     }
 }

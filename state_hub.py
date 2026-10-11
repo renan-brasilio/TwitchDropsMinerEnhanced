@@ -13,6 +13,7 @@ from typing import Any, Callable, TYPE_CHECKING
 
 from yarl import URL
 from constants import State, PriorityMode, MAX_INT
+from version import __version__
 
 if TYPE_CHECKING:
     from twitch import Twitch
@@ -594,6 +595,7 @@ class StateHub:
             "channels_count": len(self.channels_map),
             "campaigns_count": len(self.counted_inventory()),
             "websockets": list(self.websockets_status.values()),
+            "version": __version__,  # shown in Settings → About; the Mac app may differ
         }
 
 

@@ -497,6 +497,7 @@ _NATIVE_BRIDGE_JS = """
     connectionError: config.connectionError,
     state: config.state,
     apiKey: config.apiKey,
+    checkResult: config.checkResult,
     publish(error) {
       // main.swift publishNativeSettings(): the API key itself never reaches the page.
       const settings = JSON.parse(JSON.stringify(bridge.state));
@@ -517,6 +518,12 @@ _NATIVE_BRIDGE_JS = """
       }
       if (typeof message.keepRunningOnClose === 'boolean') bridge.state.keepRunningOnClose = message.keepRunningOnClose;
       if (typeof message.menuBarStyle === 'string') bridge.state.menuBarStyle = message.menuBarStyle;
+      if (typeof message.autoCheckUpdates === 'boolean') bridge.state.app.autoCheckUpdates = message.autoCheckUpdates;
+      // main.swift checkForUpdates()/installUpdate(): the checked result, then the install in progress.
+      if (message.update === 'check') bridge.state.app.update = bridge.checkResult;
+      if (message.update === 'install' && bridge.state.app.update.state === 'available') {
+        bridge.state.app.update = {...bridge.state.app.update, state: 'installing'};
+      }
       bridge.publish();
     },
     replyToPending() {
@@ -541,15 +548,19 @@ _NATIVE_BRIDGE_JS = """
 
 def native_bridge_script(*, keep_running: bool = True, menu_bar_style: str = "iconOnly",
                          mode: str = "local", server_url: str = "", api_key: str = "",
-                         auto_reply: bool = True, connection_error: str | None = None) -> str:
+                         auto_reply: bool = True, connection_error: str | None = None,
+                         app_version: str = "1.0.0", auto_check_updates: bool = True,
+                         check_result: dict | None = None) -> str:
     config = {
         "autoReply": auto_reply,
         "connectionError": connection_error,
         "apiKey": api_key,
+        "checkResult": check_result or {"state": "upToDate", "latestVersion": app_version},
         "state": {
             "keepRunningOnClose": keep_running,
             "menuBarStyle": menu_bar_style,
             "connection": {"mode": mode, "serverURL": server_url, "hasApiKey": bool(api_key)},
+            "app": {"version": app_version, "autoCheckUpdates": auto_check_updates, "update": {"state": "idle"}},
         },
     }
     return _NATIVE_BRIDGE_JS % json.dumps(config)

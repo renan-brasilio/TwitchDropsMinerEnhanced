@@ -32,6 +32,7 @@
   - **Close to Menu Bar**: Hides the window and removes the Dock icon while mining and menu bar status remain active. Use **Open Dashboard Window** in the status menu to restore the window and Dock icon.
   - **Window Close Preference**: **Keep running in the menu bar when closing the window** is enabled by default, available in **Settings → Application** and both native menus, and saved across restarts. It applies to the red close button and `Cmd+W`; disable it to quit when closing the window. **Quit** (`Cmd+Q`) always exits the app.
   - **Settings**: One tab for the Twitch account, auto-claim preference, a summary of your game priorities, and native application preferences, shown below the dashboard overview. Open the **Settings** tab or press `Cmd+,` on macOS. **Application** controls include the close preference, menu bar display style, and miner connection (local or remote Docker server); they appear only in the native app.
+  - **About** (bottom of Settings): the miner's version (and where it runs), links to this GitHub repository, its releases and issues. In the Mac app it also shows the app version and **Check for updates**.
 - **⚡ Zero-Lag Decoupled Architecture**:
   - Replaced the blocking 50–100Hz Tkinter polling loop with an async, event-driven `StateHub` that consumes 0.0% idle CPU.
 - **🔐 Modern Authentication & Captcha-Free Login**:
@@ -81,6 +82,10 @@
    - Open **Twitch Drops Miner Enhanced** from Applications or Spotlight.
    - The app window and menu bar icon will appear.
    - Authenticate via the Twitch device-code prompt, or open **Settings → Twitch account** to connect or paste a browser `auth-token` under **Advanced**.
+4. **Updates:**
+   - The app checks GitHub Releases at launch and once a day (turn this off in **Settings → About**), or on demand with **Check for Updates…** in the app menu, the menu bar menu, or Settings → About.
+   - **Install** downloads the release's `.zip`, verifies it against the SHA-256 checksum GitHub publishes for it, checks it is this app at the announced version, then quits, swaps the app in place and relaunches it. If copying fails, the previous app is put back. The app must be in a folder you can write to (such as Applications).
+   - The app update doesn't update the miner. A Docker miner updates when you redeploy it with the new tag; About notes when the miner is behind the latest release.
 
 ---
 
