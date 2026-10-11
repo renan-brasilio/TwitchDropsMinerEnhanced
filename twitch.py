@@ -49,6 +49,8 @@ from constants import (
     MAX_CHANNELS,
     GQL_QUERIES,
     GQL_CATALOG,
+    IRL_TAG_ID,
+    SPECIAL_EVENTS_ID,
     GQL_DISCOVERY,
     CATALOG_LOOKUP_MAX,
     DISCOVERY_STREAM_PAGES,
@@ -1870,6 +1872,20 @@ class Twitch:
             "viewers": node.get("viewersCount") or 0,
         }
 
+    @staticmethod
+    def _is_game(node: JsonType) -> bool:
+        """
+        False for non-game categories (Just Chatting, IRL, Music, ...), which Twitch marks with
+        the IRL content tag. Special Events keeps it but runs drop campaigns, so it stays.
+        Categories with drops on this account still show under "With drops" either way.
+        """
+        if str(node["id"]) == SPECIAL_EVENTS_ID:
+            return True
+        return not any(tag.get("id") == IRL_TAG_ID for tag in node.get("tags") or [])
+
+    def _catalog_games(self, edges: list[JsonType]) -> list[JsonType]:
+        return [self._catalog_game(e["node"]) for e in edges if e.get("node") and self._is_game(e["node"])]
+
     @account_work
     async def fetch_game_catalog(
         self, *, query: str = "", after: str | None = None, first: int = 40
@@ -1883,7 +1899,7 @@ class Twitch:
                 "query": GQL_CATALOG["search"], "variables": {"query": query, "first": first},
             })
             edges = (response["data"]["searchCategories"] or {}).get("edges") or []
-            return [self._catalog_game(e["node"]) for e in edges if e.get("node")], None
+            return self._catalog_games(edges), None
         response = await self.gql_request({
             "query": GQL_CATALOG["top"], "variables": {"first": first, "after": after},
         })
@@ -1891,7 +1907,7 @@ class Twitch:
         edges = games.get("edges") or []
         has_next = (games.get("pageInfo") or {}).get("hasNextPage", False)
         next_cursor = edges[-1]["cursor"] if edges and has_next else None
-        return [self._catalog_game(e["node"]) for e in edges if e.get("node")], next_cursor
+        return self._catalog_games(edges), next_cursor
 
     @account_work
     async def lookup_games(self, names: list[str]) -> dict[str, JsonType | None]:

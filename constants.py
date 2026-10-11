@@ -461,7 +461,13 @@ GQL_QUERIES: dict[str, GQLPersistedQuery] = {
 
 # Game catalog lookups for the game picker. Persisted query hashes for these change often,
 # so these are plain GQL documents; arguments always travel as variables, never interpolated.
-_CATALOG_FIELDS = "id name displayName boxArtURL(width: 285, height: 380) viewersCount"
+_CATALOG_FIELDS = (
+    "id name displayName boxArtURL(width: 285, height: 380) viewersCount tags(tagType: CONTENT) { id }"
+)
+# Twitch puts this content tag ("IRL") on every non-game category: Just Chatting, IRL, Music,
+# Art, ASMR, Sports, Talk Shows & Podcasts, Food & Drink, Politics, Chess, Poker, Slots, ...
+IRL_TAG_ID = "2610cff9-10ae-4cb3-8500-778e6722fbb5"
+SPECIAL_EVENTS_ID = "509663"  # tagged IRL, but runs drop campaigns, so the game picker keeps it
 GQL_CATALOG: dict[str, str] = {
     "search": (
         "query GameSearch($query: String!, $first: Int!) { searchCategories(query: $query, first: $first) "

@@ -16,7 +16,7 @@ from aiohttp import web, WSServerHandshakeError
 from aiohttp.test_utils import TestClient, TestServer
 
 from api import APIServer
-from constants import PriorityMode, State
+from constants import IRL_TAG_ID, PriorityMode, State
 from inventory import DropsCampaign
 from settings import Settings
 from twitch import Twitch
@@ -693,9 +693,31 @@ class GameCatalogEndpointTests(ApiContractTestCase):
         return sent
 
     @staticmethod
-    def node(name, display=None, viewers=10):
-        return {"id": "1", "name": name.lower(), "displayName": display or name,
-                "boxArtURL": f"https://cdn.example/{name}.jpg", "viewersCount": viewers}
+    def node(name, display=None, viewers=10, *, id="1", tags=()):
+        return {"id": id, "name": name.lower(), "displayName": display or name,
+                "boxArtURL": f"https://cdn.example/{name}.jpg", "viewersCount": viewers,
+                "tags": [{"id": t} for t in tags]}
+
+    async def test_non_game_categories_are_left_out_of_browse_and_search(self):
+        shooter = "523945d1-b36a-4aed-a0e1-7d9a7a3e94f9"  # any other content tag
+        nodes = [self.node("Just Chatting", id="509658", tags=[IRL_TAG_ID]),
+                 self.node("Counter-Strike", id="32399", tags=[shooter]),
+                 self.node("IRL", id="509672", tags=[IRL_TAG_ID]),  # special-cased elsewhere, still not a game
+                 self.node("Music", id="26936", tags=[IRL_TAG_ID, shooter]),
+                 self.node("Special Events", id="509663", tags=[IRL_TAG_ID]),  # runs drop campaigns
+                 self.node("Untagged Game", id="5")]
+        self.fake_gql({
+            "TopGames": lambda v: {"data": {"games": {
+                "edges": [{"cursor": f"c{i}", "node": n} for i, n in enumerate(nodes)],
+                "pageInfo": {"hasNextPage": True}}}},
+            "GameSearch": lambda v: {"data": {"searchCategories": {"edges": [{"node": n} for n in nodes]}}},
+        })
+        games = ["Counter-Strike", "Special Events", "Untagged Game"]
+        browse = await self.get_json("/api/games/catalog?first=5")
+        self.assertEqual([g["name"] for g in browse["games"]], games)
+        self.assertEqual(browse["next"], "c5")  # paging continues past dropped categories
+        search = await self.get_json("/api/games/catalog?q=a")
+        self.assertEqual([g["name"] for g in search["games"]], games)
 
     async def test_search_returns_display_names_and_drop_counts_without_paging(self):
         self.add_campaign("active", game="VALORANT", game_id="7")

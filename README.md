@@ -44,6 +44,7 @@
   - The **Games** tab shows game cover art in a grid. Select a cover to add it to your mining order; select it again to remove it. Chosen games show their rank (`#1`, `#2`, …) on the cover.
   - **With drops** lists the games that have drop campaigns on your account right now. **All games** browses every category on Twitch, most watched first, loading more as you scroll.
   - **Search** finds any game on Twitch by name. If Twitch has no game with that name, you can still add it exactly as typed.
+  - **All games** and search list games only. Categories Twitch tags as IRL (Just Chatting, IRL, Music, Art, ASMR, Sports, Talk Shows & Podcasts, Chess, Poker, Slots, …) are left out. **Special Events** stays because it runs drop campaigns, and any category with drops on your account still shows under **With drops**.
   - The **Mining order** panel beside the grid lists your games top to bottom with their covers and drop campaign counts. Reorder with `▲`/`▼`, remove with `✕`, and pick the **Priority mode** there. Changes save immediately.
   - A saved game that no longer matches any Twitch game (for example after a rename) is marked **Not found on Twitch**, since it can never be mined.
   - Game names match Twitch case-insensitively, so a saved `Valorant` mines Twitch's `VALORANT`.
