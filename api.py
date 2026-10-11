@@ -330,6 +330,7 @@ class APIServer:
             "available_drops_check": s.available_drops_check,
             "has_token": bool(getattr(s, "auth_token", False)),
             "auto_claim": s.auto_claim,
+            "auto_select_linked": s.auto_select_linked,
         })
 
     async def _post_settings(self, request: web.Request) -> web.Response:
@@ -355,7 +356,7 @@ class APIServer:
             if type(mode) is not int or mode not in PriorityMode._value2member_map_:
                 return self._json_response({"error": "priority_mode is invalid"}, status=400)
             updates["priority_mode"] = PriorityMode(mode)
-        for key in ("tray_notifications", "auto_claim"):
+        for key in ("tray_notifications", "auto_claim", "auto_select_linked"):
             if key in data:
                 if not isinstance(data[key], bool):
                     return self._json_response({"error": f"{key} must be a boolean"}, status=400)
@@ -364,15 +365,13 @@ class APIServer:
         s = self._twitch.settings
         previous = {name.casefold() for name in s.priority}
         added_game = any(name.casefold() not in previous for name in updates.get("priority", []))
+        if updates.get("auto_select_linked") and not s.auto_select_linked:
+            # Turning it on applies to every linked campaign again, including games removed earlier.
+            updates["auto_selected_campaigns"] = set()
         for key, value in updates.items():
             setattr(s, key, value)
         s.save(force=True)
-        self._hub.broadcast_event("settings", {
-            "priority": list(s.priority),
-            "exclude": list(s.exclude),
-            "priority_mode": s.priority_mode.value,
-            "auto_claim": s.auto_claim,
-        })
+        self._hub.broadcast_settings()
         # Discovery searches live streams of priority games, so a newly chosen game needs a
         # campaign refresh; other changes only re-rank the games already known.
         self._twitch.change_state(State.INVENTORY_FETCH if added_game else State.GAMES_UPDATE)

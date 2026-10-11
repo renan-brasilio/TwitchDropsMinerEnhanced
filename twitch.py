@@ -706,6 +706,7 @@ class Twitch:
                                 if drop.can_claim:
                                     await drop.claim()
                 self._prune_focus()
+                self._auto_select_linked_games()
                 # figure out which games we want
                 self.wanted_games.clear()
                 # Twitch display names are matched case-insensitively ("Valorant" == "VALORANT").
@@ -1775,6 +1776,44 @@ class Twitch:
         if campaign is None or campaign not in self.inventory or campaign.expired or campaign.finished:
             self.settings.focused_campaign = ""
             self.settings.save(force=True)
+
+    def _auto_select_linked_games(self) -> None:
+        """
+        Add the game of every campaign Twitch reports as linked to the end of the mining order.
+        Each campaign is handled once, so a game the user removes again stays removed until
+        it gets a new campaign. Excluded games and ignored campaigns are left alone.
+        """
+        s = self.settings
+        if not getattr(s, "auto_select_linked", False):
+            return
+        handled: set[str] = s.auto_selected_campaigns
+        chosen = {name.casefold() for name in s.priority}
+        excluded = {name.casefold() for name in s.exclude}
+        added: list[str] = []
+        changed = False
+        for campaign in self.inventory:
+            if (
+                campaign.id in handled
+                or not campaign.linked
+                or campaign.link_unknown
+                or campaign.ignored
+                or campaign.expired
+                or campaign.finished
+            ):
+                continue
+            handled.add(campaign.id)
+            changed = True
+            game = campaign.game.name
+            if game.casefold() not in chosen and game.casefold() not in excluded:
+                chosen.add(game.casefold())
+                s.priority.append(game)
+                added.append(game)
+        if not changed:
+            return
+        s.save(force=True)
+        if added:
+            logger.info(f"Added linked games to the mining order: {', '.join(added)}")
+            self.gui.broadcast_settings()
 
     def get_active_campaign(self, channel: Channel | None = None) -> DropsCampaign | None:
         if not self.wanted_games:

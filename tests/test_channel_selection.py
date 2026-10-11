@@ -335,6 +335,26 @@ class MiningLoopSelectionTests(SelectionTestCase):
         self.assertEqual(await self.select(), (["Beta"], 2))
         self.assertEqual(self.settings.focused_campaign, "")
 
+    async def test_auto_select_adds_and_mines_only_linked_games(self):
+        delta, epsilon, zeta = ({"id": str(400 + i), "name": n, "boxArtURL": ""}
+                                for i, n in enumerate(("Delta", "Epsilon", "Zeta")))
+        self.add_campaign(ALPHA)
+        self.add_campaign(BETA, linked=False)
+        self.add_campaign(GAMMA)
+        self.add_campaign(delta).link_unknown = True  # Twitch didn't say
+        self.add_campaign(epsilon)
+        ignored = self.add_campaign(zeta)
+        for cid, game in enumerate((ALPHA, BETA, GAMMA, delta, epsilon, zeta), start=1):
+            self.live(game, (cid, 1000 - cid))
+        self.settings.priority = ["Alpha"]  # priority-only
+        self.settings.exclude = {"Epsilon"}
+        self.settings.ignored_campaigns = {ignored.id}
+        self.settings.auto_select_linked = True
+        self.settings.auto_selected_campaigns = set()
+
+        self.assertEqual(await self.select(), (["Alpha", "Gamma"], 1))
+        self.assertEqual(self.settings.priority, ["Alpha", "Gamma"])
+
     async def test_ending_soonest_orders_unprioritized_games_by_campaign_end(self):
         self.add_campaign(ALPHA, end=NOW + timedelta(days=3))
         self.add_campaign(BETA, end=NOW + timedelta(days=1))
@@ -388,6 +408,38 @@ class MiningLoopSelectionTests(SelectionTestCase):
         self.live(ALPHA, (1, 5000))
 
         self.assertEqual(await self.select(), (["Alpha"], None))
+
+
+class AutoSelectLinkedTests(SelectionTestCase):
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.settings.auto_select_linked = True
+        self.settings.auto_selected_campaigns = set()
+
+    async def test_removed_game_stays_removed_until_it_gets_a_new_campaign(self):
+        self.add_campaign(GAMMA)
+        self.twitch._auto_select_linked_games()
+        self.assertEqual(self.settings.priority, ["Gamma"])
+
+        self.settings.priority.remove("Gamma")
+        self.twitch._auto_select_linked_games()
+        self.assertEqual(self.settings.priority, [])
+
+        self.add_campaign(GAMMA, acl=(9,))  # a new campaign for the same game
+        self.twitch._auto_select_linked_games()
+        self.assertEqual(self.settings.priority, ["Gamma"])
+
+    async def test_already_listed_game_keeps_its_rank_and_spelling(self):
+        self.add_campaign(GAMMA)
+        self.settings.priority = ["gamma", "Alpha"]
+        self.twitch._auto_select_linked_games()
+        self.assertEqual(self.settings.priority, ["gamma", "Alpha"])
+
+    async def test_off_changes_nothing(self):
+        self.settings.auto_select_linked = False
+        self.add_campaign(GAMMA)
+        self.twitch._auto_select_linked_games()
+        self.assertEqual((self.settings.priority, self.settings.auto_selected_campaigns), ([], set()))
 
 
 if __name__ == "__main__":

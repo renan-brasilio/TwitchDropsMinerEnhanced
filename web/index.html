@@ -721,6 +721,11 @@
     }
 
     .campaign-item.campaign-focused { border-color: var(--accent); }
+    .campaign-options { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+    .option-toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; user-select: none; }
+    .option-toggle input { accent-color: var(--accent); cursor: pointer; }
+    .option-toggle input:disabled { cursor: default; }
+    .campaign-options-help { margin: 4px 0 16px; }
 
     .ignored-list { list-style: none; margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
     .ignored-row {
@@ -936,6 +941,17 @@
             </button>
           </div>
         </div>
+        <div class="campaign-options">
+          <label class="option-toggle">
+            <input type="checkbox" id="mineOnlySelectedToggle" disabled onchange="setMineOnlySelected(this.checked)">
+            Mine only selected games
+          </label>
+          <label class="option-toggle">
+            <input type="checkbox" id="autoSelectLinkedToggle" disabled onchange="toggleAutoSelectLinked(this.checked)">
+            Automatically select linked games
+          </label>
+        </div>
+        <p class="form-help campaign-options-help">Selected games are your mining order on the Games page. With “Mine only” off, campaigns of other games are mined after them. Linked games are added once per campaign; a game you remove stays removed until it gets a new campaign.</p>
         <div id="campaignsList">
           <p style="color: var(--text-muted); font-size: 13px;">Loading inventory...</p>
         </div>
@@ -1120,6 +1136,8 @@
     let pollSequence = 0;
     let controlPending = false;
     let autoClaimPending = false;
+    let autoSelectPending = false;
+    let lastOtherPriorityMode = '1'; // restored when "Mine only selected games" is turned off
     let savedAutoClaim = null;
     let settingsRevision = 0;
     let prioritiesPending = false;
@@ -1481,6 +1499,9 @@
         ++settingsRevision;
         cachedState.settings = { ...cachedState.settings, ...data };
         syncAutoClaim(data.auto_claim);
+        syncAutoSelect(data.auto_select_linked);
+        // The miner itself may have changed the mining order (linked games added).
+        if (!prioritiesPending) loadPriorities();
       } else if (eventType === 'countdown') {
         if (cachedState.active_drop) {
           cachedState.active_drop.seconds = data.seconds;
@@ -1494,11 +1515,13 @@
 
       renderDrop(state.active_drop);
       renderStreamer(state.active_channel);
-      renderChannels(state.channels || []);
-      renderInventory(state.inventory || []);
+      // /api/status carries no lists; only the WebSocket snapshot does. Re-rendering an empty
+      // list on every poll emptied the page and threw the scroll position back to the top.
+      if (Array.isArray(state.channels)) renderChannels(state.channels);
+      if (Array.isArray(state.inventory)) renderInventory(state.inventory);
       renderActivation(authPending || state.auth_disconnected || state.is_logged_in ? null : state.device_code);
 
-      document.getElementById('statChannels').innerText = (state.channels || []).length;
+      if (Array.isArray(state.channels)) document.getElementById('statChannels').innerText = state.channels.length;
       document.getElementById('statCampaigns').innerText = state.campaigns_count ?? (state.inventory || []).length;
       
       let topicCount = 0;
@@ -1932,7 +1955,9 @@
         cachedAvailableGames = gamesData.available || [];
         cachedCampaignCounts = gamesData.campaign_counts || cachedCampaignCounts || {};
         document.getElementById('priorityMode').value = settingsData.priority_mode || 0;
+        syncAutoSelect(settingsData.auto_select_linked);
         prioritiesLoaded = true;
+        syncMineOnly();
         rememberArt(cachedAvailableGames);
         const dropCount = dropGames().length;
         document.getElementById('dropsGamesCount').textContent = dropCount ? `(${dropCount})` : '';
@@ -2342,7 +2367,8 @@
       prioritiesPending = true;
       ++priorityRevision;
       renderPrioritySummary();
-      const controls = [...document.querySelectorAll('#miningOrderPanel button, #priorityMode')];
+      syncMineOnly();
+      const controls = [...document.querySelectorAll('#miningOrderPanel button, #priorityMode, #mineOnlySelectedToggle')];
       const disabledStates = controls.map(control => control.disabled);
       controls.forEach(control => { control.disabled = true; });
       const mode = parseInt(document.getElementById('priorityMode').value, 10);
@@ -2353,13 +2379,61 @@
           body: JSON.stringify({ priority: priorityList, priority_mode: mode })
         }));
         if (showNotice) showToast('Priority configuration saved', 'success');
+        return true;
       } catch (err) {
         showToast('Failed to save priorities: ' + err.message, 'error');
         await loadPriorities(true);
+        return false;
       } finally {
         prioritiesPending = false;
         ++priorityRevision;
         controls.forEach((control, index) => { control.disabled = disabledStates[index]; });
+      }
+    }
+
+    // "Mine only selected games" is the Priority Games Only mode of the Games page.
+    function syncMineOnly() {
+      const mode = document.getElementById('priorityMode').value;
+      if (mode !== '0') lastOtherPriorityMode = mode;
+      const toggle = document.getElementById('mineOnlySelectedToggle');
+      toggle.checked = mode === '0';
+      toggle.disabled = !prioritiesLoaded;
+    }
+
+    async function setMineOnlySelected(only) {
+      document.getElementById('priorityMode').value = only ? '0' : lastOtherPriorityMode;
+      if (await savePriorities(false)) {
+        showToast(only ? 'Mining only your selected games' : 'Mining your selected games first, then other campaigns', 'success');
+      } else {
+        syncMineOnly();
+      }
+    }
+
+    function syncAutoSelect(enabled) {
+      if (typeof enabled !== 'boolean' || autoSelectPending) return;
+      const toggle = document.getElementById('autoSelectLinkedToggle');
+      toggle.checked = enabled;
+      toggle.disabled = false;
+    }
+
+    async function toggleAutoSelectLinked(enabled) {
+      if (autoSelectPending) return;
+      const toggle = document.getElementById('autoSelectLinkedToggle');
+      autoSelectPending = true;
+      toggle.disabled = true;
+      try {
+        await responseData(await apiFetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ auto_select_linked: enabled })
+        }));
+        showToast(enabled ? 'Linked games will be added to your mining order' : 'Linked games are no longer added automatically', 'success');
+      } catch (err) {
+        toggle.checked = !enabled;
+        showToast('Failed to update linked games option: ' + err.message, 'error');
+      } finally {
+        autoSelectPending = false;
+        toggle.disabled = false;
       }
     }
 

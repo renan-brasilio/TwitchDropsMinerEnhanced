@@ -292,6 +292,17 @@ class StateHub:
             except Exception:
                 pass
 
+    def broadcast_settings(self) -> None:
+        """Tell dashboards the mining preferences changed (by the API or by the miner itself)."""
+        s = self._twitch.settings
+        self.broadcast_event("settings", {
+            "priority": list(s.priority),
+            "exclude": list(s.exclude),
+            "priority_mode": s.priority_mode.value,
+            "auto_claim": s.auto_claim,
+            "auto_select_linked": s.auto_select_linked,
+        })
+
     def set_status_text(self, text: str) -> None:
         self.status_text = text
         self.broadcast_event("status", {"status": text, "state": self.state_enum.name})

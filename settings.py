@@ -29,6 +29,8 @@ class SettingsFile(TypedDict):
     auto_claim: bool
     ignored_campaigns: set[str]
     focused_campaign: str
+    auto_select_linked: bool
+    auto_selected_campaigns: set[str]
 
 
 default_settings: SettingsFile = {
@@ -49,6 +51,8 @@ default_settings: SettingsFile = {
     "auto_claim": True,
     "ignored_campaigns": set(),  # campaign IDs the miner never works on
     "focused_campaign": "",  # campaign ID to mine first ("Mine now"); "" when none
+    "auto_select_linked": False,  # add games of linked campaigns to the mining order
+    "auto_selected_campaigns": set(),  # campaign IDs already handled by auto-select
 }
 
 
@@ -79,6 +83,8 @@ class Settings:
     auto_claim: bool
     ignored_campaigns: set[str]
     focused_campaign: str
+    auto_select_linked: bool
+    auto_selected_campaigns: set[str]
 
     PASSTHROUGH = ("_settings", "_args", "_altered")
 

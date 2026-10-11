@@ -150,6 +150,7 @@ class ApiContractTestCase(unittest.IsolatedAsyncioTestCase):
             "priority": s.priority, "exclude": set(s.exclude), "priority_mode": s.priority_mode,
             "auto_claim": s.auto_claim, "tray_notifications": s.tray_notifications,
             "auth_token": s.auth_token, "auth_disconnected": s.auth_disconnected, "api_port": s.api_port,
+            "auto_select_linked": s.auto_select_linked, "auto_selected_campaigns": set(s.auto_selected_campaigns),
         }
 
     async def get_json(self, path, **kwargs):
@@ -306,6 +307,9 @@ class SettingsEndpointTests(ApiContractTestCase):
             {"priority_mode": -1},
             {"priority_mode": None},
             {"auth_token": "attacker-token", "auth_disconnected": True, "api_port": 1},
+            {"auto_select_linked": "yes"},
+            {"auto_select_linked": 1},
+            {"auto_selected_campaigns": ["campaign"]},
         ]
         for payload in payloads:
             with self.subTest(payload=payload):
@@ -353,6 +357,23 @@ class SettingsEndpointTests(ApiContractTestCase):
         self.assertEqual(set(data["exclude"]), {"Rust", "Apex Legends"})
         self.assertEqual(data["priority_mode"], PriorityMode.ENDING_SOONEST.value)
         self.assertTrue(data["auto_claim"])
+
+    async def test_turning_on_auto_select_reapplies_to_every_linked_campaign(self):
+        queue = self.hub.subscribe()
+        self.addCleanup(self.hub.unsubscribe, queue)
+        self.twitch.settings.auto_selected_campaigns = {"handled-while-on-before"}
+
+        self.assertEqual((await self.client.post("/api/settings", json={"auto_select_linked": True})).status, 200)
+        persisted = self.persisted()
+        self.assertTrue(persisted["auto_select_linked"])
+        self.assertEqual(persisted["auto_selected_campaigns"], set())
+        self.assertTrue((await self.get_json("/api/settings"))["auto_select_linked"])
+        self.assertTrue([e for e in self.drain(queue) if e["event"] == "settings"][-1]["data"]["auto_select_linked"])
+
+        # While it stays on, other saves keep the record of handled campaigns.
+        self.twitch.settings.auto_selected_campaigns.add("handled")
+        await self.client.post("/api/settings", json={"auto_select_linked": True, "auto_claim": False})
+        self.assertEqual(self.persisted()["auto_selected_campaigns"], {"handled"})
 
     async def test_choosing_a_new_game_refreshes_campaigns_but_reordering_does_not(self):
         # Discovery searches priority games' live streams, so only an added game needs a refetch.
