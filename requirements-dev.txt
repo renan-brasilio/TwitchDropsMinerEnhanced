@@ -1,0 +1,4 @@
+-r requirements.txt
+# Test tooling (not shipped with the app)
+coverage>=7.6
+playwright>=1.48  # browsers: python -m playwright install chromium

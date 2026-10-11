@@ -33,3 +33,7 @@ mac/TwitchDropsMinerMenu
 
 # Local standing instructions for coding assistants
 /AGENTS.md
+# Coverage artifacts
+.coverage
+.coverage.*
+htmlcov/

@@ -1,0 +1,23 @@
+[run]
+branch = True
+source = .
+# Excluded: tests, environments, and modules outside the product path.
+#   gui.py                  upstream Tkinter GUI, replaced by state_hub.py/web dashboard
+#   registry.py, cache.py   upstream Windows/Tk helpers, not imported by the daemon
+#   make_*icon.py, render_screenshots.py   asset-generation scripts
+#   main.py                 process entrypoint (argument parsing, signal wiring)
+omit =
+    tests/*
+    venv/*
+    env/*
+    gui.py
+    registry.py
+    cache.py
+    make_icon.py
+    make_twitch_miner_icon.py
+    render_screenshots.py
+    main.py
+
+[report]
+# fail_under is the ratchet floor (measured baseline): raise it when coverage improves, never lower it.
+fail_under = 72

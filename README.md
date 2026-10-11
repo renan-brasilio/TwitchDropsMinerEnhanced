@@ -116,6 +116,25 @@ open TwitchDropsMinerEnhanced.app
 
 ---
 
+### Running the Regression Suite
+
+```bash
+./venv/bin/pip install -r requirements-dev.txt
+./venv/bin/python -m playwright install chromium
+
+# Unit, API contract, PubSub, settings, release-metadata and dashboard E2E tests, with branch coverage
+REQUIRE_E2E=1 ./venv/bin/coverage run -m unittest discover -s tests -v
+./venv/bin/coverage report
+```
+
+- Tests never contact Twitch. Twitch is replaced by local fake servers at the network boundary, and the miner's own API, account lifecycle, and settings persistence run for real against temporary data directories.
+- The dashboard E2E tests (`tests/e2e/`) use Playwright with Chromium. Without Playwright installed they are skipped; `REQUIRE_E2E=1` turns that into a failure, as in CI.
+- `coverage report` fails below the floor in `.coveragerc`. Raise that floor when coverage improves; never lower it.
+- The **Tests** workflow runs the suite on Python 3.10 and 3.12 for every push and pull request. Release tags run it again before packaging.
+- Risk areas, priorities, and test conventions are recorded in `.agents/qa-project-context.md`.
+
+---
+
 ### ⚙️ How It Works Under the Hood
 
 Every several seconds, the application simulates watching an authorized stream by fetching stream metadata and playlist chunk headers. This advances Twitch drop progress without downloading video or audio data, saving bandwidth and system resources.

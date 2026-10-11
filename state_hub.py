@@ -206,6 +206,8 @@ class StateHub:
         self.user_id: int | None = None
         self.username: str | None = None
         self.device_code_data: dict[str, str] | None = None
+        # Why the last login attempt failed; cleared on reconnect or successful login.
+        self.auth_error: str | None = None
 
         self.active_drop: dict[str, Any] | None = None
         self.active_channel: dict[str, Any] | None = None
@@ -317,6 +319,7 @@ class StateHub:
         self.user_id = user_id
         if user_id:
             self.device_code_data = None
+            self.auth_error = None
         self.broadcast_event("auth", {
             "status": status_text,
             "logged_in": self.is_logged_in,
@@ -325,6 +328,7 @@ class StateHub:
             "auth_disconnected": getattr(self._twitch.settings, "auth_disconnected", False),
             "auth_pending": self._twitch._account_transitioning or bool(self._twitch._disconnect_pending),
             "device_code": self.device_code_data,
+            "auth_error": self.auth_error,
         })
 
     def clear_account(self) -> None:
@@ -566,6 +570,7 @@ class StateHub:
             "active_drop": self.active_drop,
             "active_channel": self.active_channel,
             "device_code": self.device_code_data,
+            "auth_error": self.auth_error,
             "channels_count": len(self.channels_map),
             "campaigns_count": len(self.get_inventory()),
             "websockets": list(self.websockets_status.values()),

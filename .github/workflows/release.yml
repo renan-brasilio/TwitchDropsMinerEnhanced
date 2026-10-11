@@ -28,10 +28,13 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt Pillow truststore
+          pip install -r requirements.txt -r requirements-dev.txt Pillow truststore
+          python -m playwright install chromium
 
       - name: Run regression tests
-        run: python -m unittest discover -s tests -v
+        env:
+          REQUIRE_E2E: "1"
+        run: coverage run -m unittest discover -s tests -v && coverage report
 
       - name: Ensure executable permissions
         run: chmod +x build_mac.sh

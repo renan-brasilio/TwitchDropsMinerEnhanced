@@ -943,6 +943,7 @@
     let nativePreferences = null;
     const nativePending = {};
     let connectionRendered = false;
+    let shownAuthError = null;
 
     function showToast(message, type = 'info') {
       let toast = document.getElementById('toastNotice');
@@ -985,6 +986,15 @@
     function updateAccountControls() {
       const known = typeof cachedState.auth_disconnected === 'boolean';
       const busy = Boolean(authPending || cachedState.auth_pending);
+      // Server-side login failures (e.g. a token Twitch rejected) surface beside the account controls.
+      const accountError = document.getElementById('accountError');
+      if (cachedState.auth_error && !authPending) {
+        accountError.textContent = cachedState.auth_error;
+        shownAuthError = cachedState.auth_error;
+      } else if (shownAuthError && accountError.textContent === shownAuthError) {
+        accountError.textContent = '';
+        shownAuthError = null;
+      }
       const connected = cachedState.is_logged_in && !cachedState.auth_disconnected;
       const activation = !cachedState.auth_disconnected && !connected && cachedState.device_code?.code;
       let label = 'Checking account...';
@@ -1277,7 +1287,8 @@
           is_logged_in: data.is_logged_in ?? data.logged_in ?? false,
           user_id: data.user_id ?? null,
           username: data.username ?? null,
-          device_code: data.device_code ?? null
+          device_code: data.device_code ?? null,
+          auth_error: data.auth_error ?? null
         };
         renderActivation(authPending || cachedState.auth_disconnected || cachedState.is_logged_in ? null : cachedState.device_code);
         updateAccountControls();

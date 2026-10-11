@@ -86,6 +86,12 @@ class CaptchaRequired(LoginException):
         super().__init__("Captcha is required")
 
 
+class AuthRejected(LoginException):
+    """
+    Twitch rejected the saved credentials; the user must connect again.
+    """
+
+
 class GQLException(RequestException):
     """
     Raised when a GQL request returns an error response.

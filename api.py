@@ -223,20 +223,32 @@ class APIServer:
         except Exception:
             return self._json_response({"error": "Invalid JSON"}, status=400)
 
+        if not isinstance(data, dict):
+            return self._json_response({"error": "Settings must be a JSON object"}, status=400)
+
+        # Validate the whole body before applying anything, so a bad field can't half-apply.
+        updates: dict[str, Any] = {}
+        for key in ("priority", "exclude"):
+            if key in data:
+                value = data[key]
+                if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                    return self._json_response({"error": f"{key} must be a list of strings"}, status=400)
+                updates[key] = list(value) if key == "priority" else set(value)
+        if "priority_mode" in data:
+            mode = data["priority_mode"]
+            # bool is an int subclass; reject it alongside floats and unknown values.
+            if type(mode) is not int or mode not in PriorityMode._value2member_map_:
+                return self._json_response({"error": "priority_mode is invalid"}, status=400)
+            updates["priority_mode"] = PriorityMode(mode)
+        for key in ("tray_notifications", "auto_claim"):
+            if key in data:
+                if not isinstance(data[key], bool):
+                    return self._json_response({"error": f"{key} must be a boolean"}, status=400)
+                updates[key] = data[key]
+
         s = self._twitch.settings
-        if "priority" in data and isinstance(data["priority"], list):
-            s.priority = data["priority"]
-        if "exclude" in data and isinstance(data["exclude"], list):
-            s.exclude = set(data["exclude"])
-        if "priority_mode" in data and isinstance(data["priority_mode"], int):
-            try:
-                s.priority_mode = PriorityMode(data["priority_mode"])
-            except Exception:
-                pass
-        if "tray_notifications" in data:
-            s.tray_notifications = bool(data["tray_notifications"])
-        if "auto_claim" in data:
-            s.auto_claim = bool(data["auto_claim"])
+        for key, value in updates.items():
+            setattr(s, key, value)
         s.save(force=True)
         self._hub.broadcast_event("settings", {
             "priority": list(s.priority),

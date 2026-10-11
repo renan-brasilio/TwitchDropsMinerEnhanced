@@ -25,6 +25,7 @@ from exceptions import (
     ExitRequest,
     GQLException,
     ReloadRequest,
+    AuthRejected,
     LoginException,
     MinerException,
     RequestInvalid,
@@ -438,7 +439,7 @@ class _AuthState:
                             validate_response = await response.json()
                             break
                 else:
-                    raise RuntimeError("Login verification failure (step #2)")
+                    raise AuthRejected("Twitch rejected the saved login. Connect again.")
                 # ensure client matches WEB, SMARTBOX, or client_info
                 resp_client_id = validate_response.get("client_id")
                 if resp_client_id == ClientType.WEB.CLIENT_ID:
@@ -585,7 +586,26 @@ class Twitch:
             finally:
                 self._account_transitioning = False
             self._account_enabled.set()
+            self.gui.auth_error = None
             self.gui.update_auth_status("Connecting")
+
+    async def _login_rejected(self, message: str) -> None:
+        # Keep run() alive: drop the rejected credentials and wait for an explicit reconnect.
+        async with self._account_lock:
+            self._account_transitioning = True
+            self._account_enabled.clear()
+            try:
+                self._use_environment_token = False
+                self.settings.auth_token = ""
+                self.settings.save(force=True)
+                await self._shutdown_account(delete_cookies=True)
+                self._state = State.IDLE
+                self.gui.state_enum = State.IDLE
+                self.gui.set_status_text("Not connected to Twitch")
+            finally:
+                self._account_transitioning = False
+        self.gui.auth_error = message
+        self.gui.update_auth_status("Not connected")
 
     async def get_session(self) -> aiohttp.ClientSession:
         if not self.account_available:
@@ -767,6 +787,8 @@ class Twitch:
                 except ReloadRequest:
                     await self.shutdown()
                     self._account_enabled.set()
+                except AuthRejected as exc:
+                    await self._login_rejected(str(exc))
                 except ExitRequest:
                     break
                 except aiohttp.ContentTypeError as exc:
