@@ -31,7 +31,7 @@
   - **Menu Bar Extra (`NSStatusItem`)**: Custom Twitch + pickaxe template icon in your macOS menu bar displaying real-time progress (`[████████░░] 85%`), active streamer, viewer counts, and quick actions upon clicking.
   - **Close to Menu Bar**: Hides the window and removes the Dock icon while mining and menu bar status remain active. Use **Open Dashboard Window** in the status menu to restore the window and Dock icon.
   - **Window Close Preference**: **Keep running in the menu bar when closing the window** is enabled by default, available in **Settings → Application** and both native menus, and saved across restarts. It applies to the red close button and `Cmd+W`; disable it to quit when closing the window. **Quit** (`Cmd+Q`) always exits the app.
-  - **Settings**: One page for the Twitch account, auto-claim preference, game-priority editor, and native application preferences. Open the **Settings** tab or press `Cmd+,` on macOS. **Application** controls include the close preference and menu bar display style; they appear only in the native app.
+  - **Settings**: One tab for the Twitch account, auto-claim preference, game-priority editor, and native application preferences, shown below the dashboard overview. Open the **Settings** tab or press `Cmd+,` on macOS. **Application** controls include the close preference, menu bar display style, and miner connection (local or remote Docker server); they appear only in the native app.
 - **⚡ Zero-Lag Decoupled Architecture**:
   - Replaced the blocking 50–100Hz Tkinter polling loop with an async, event-driven `StateHub` that consumes 0.0% idle CPU.
 - **🔐 Modern Authentication & Captcha-Free Login**:
@@ -52,7 +52,7 @@
   - When disabled, rewards remain available for manual claiming using **Claim**. Dependent rewards may require the previous reward to be claimed before progressing.
 - **🐳 Docker & Remote VPS Support**:
   - Headless daemon container ready for deployment on any VPS (via Docker Compose or Dokploy).
-  - **Client-Server Switcher**: Toggle between **Local Daemon** (`http://127.0.0.1:23432`) and **Remote VPS** using **Connection Settings...** in the native app or status menu.
+  - **Client-Server Switcher**: In **Settings → Application → Miner connection**, choose **Local (this Mac)** (`http://127.0.0.1:23432`) or **Remote server (Docker)** with its URL and optional API key, then **Save & reconnect**. The API key stays in the macOS app and is never shown in the page. If the miner can't be reached, use **Connection Settings…** on the offline screen or in the native menus.
   - Optional `API_KEY` Bearer authentication for secure public hosting.
 
 ---
@@ -91,8 +91,8 @@ You can run the mining engine 24/7 on your VPS inside Docker and connect to it f
 
 3. **Connect from macOS App:**
    - Open `TwitchDropsMinerEnhanced.app` on your Mac.
-   - Choose **Connection Settings...** from the native app or menu bar status menu.
-   - Select **Remote VPS / Docker** &rarr; enter your VPS address (e.g. `https://miner.yourdomain.com` or `http://vps-ip:23432`) and API key.
+   - Open **Settings → Application → Miner connection** (or **Connection Settings...** in the menus).
+   - Select **Remote server (Docker)** &rarr; enter your VPS address (e.g. `https://miner.yourdomain.com` or `http://vps-ip:23432`) and API key, then **Save & reconnect**.
    - The macOS app immediately syncs with your remote miner.
 
 ---

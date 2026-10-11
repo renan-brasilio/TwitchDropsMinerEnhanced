@@ -880,6 +880,33 @@
             </select>
           </div>
           <p id="nativeSettingsStatus" role="status" class="form-help"></p>
+          <h3 class="panel-title" id="connectionHeading" style="margin-top: 20px;">Miner connection</h3>
+          <p class="form-help">Run the miner on this Mac, or connect to a remote miner server such as the Docker container on your VPS.</p>
+          <div class="form-group" role="radiogroup" aria-labelledby="connectionHeading" style="display: flex; gap: 16px; margin-top: 8px;">
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+              <input type="radio" name="connectionMode" value="local" onchange="renderConnectionMode()" style="accent-color: var(--accent);"> Local (this Mac)
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+              <input type="radio" name="connectionMode" value="remote" onchange="renderConnectionMode()" style="accent-color: var(--accent);"> Remote server (Docker)
+            </label>
+          </div>
+          <div id="remoteConnectionFields">
+            <div class="form-group">
+              <label class="form-label" for="connectionServerURL">Server URL:</label>
+              <input type="url" class="form-input" id="connectionServerURL" placeholder="https://miner.example.com or http://vps-ip:23432" autocomplete="off" spellcheck="false" autocapitalize="none">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="connectionApiKey">API key (optional):</label>
+              <input type="password" class="form-input" id="connectionApiKey" autocomplete="off" spellcheck="false" autocapitalize="none">
+              <label id="clearApiKeyOption" style="display: flex; align-items: center; gap: 6px; margin-top: 8px; cursor: pointer;">
+                <input type="checkbox" id="clearApiKey" style="accent-color: var(--accent);"> Remove saved API key
+              </label>
+              <div class="form-help">Must match the server's <code>API_KEY</code>. The key stays in the macOS app and is never shown here.</div>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="btnSaveConnection" onclick="saveConnection()">Save &amp; reconnect</button>
+          <p class="form-help">Saving reloads the dashboard from the chosen miner. If it can't be reached, use <strong>Connection Settings…</strong> on the offline screen or in the menu bar.</p>
+          <p id="connectionStatus" role="status" class="form-help"></p>
         </section>
       </div>
     </div>
@@ -915,6 +942,7 @@
     let priorityRevision = 0;
     let nativePreferences = null;
     const nativePending = {};
+    let connectionRendered = false;
 
     function showToast(message, type = 'info') {
       let toast = document.getElementById('toastNotice');
@@ -1068,8 +1096,9 @@
 
     function applyNativeSettings(settings, acknowledged = false) {
       if (!settings || typeof settings.keepRunningOnClose !== 'boolean' || !['iconOnly', 'currentMining', 'timeLeft', 'percentage', 'full'].includes(settings.menuBarStyle)) return;
-      nativePreferences = { keepRunningOnClose: settings.keepRunningOnClose, menuBarStyle: settings.menuBarStyle };
+      nativePreferences = { keepRunningOnClose: settings.keepRunningOnClose, menuBarStyle: settings.menuBarStyle, connection: settings.connection || nativePreferences?.connection };
       if (!document.getElementById('nativeApplicationSettings')) return;
+      const connectionReply = acknowledged && Boolean(nativePending.connection);
       if (!acknowledged && Object.keys(nativePending).length) return;
       document.getElementById('nativeApplicationSettings').style.display = 'block';
       document.getElementById('keepRunningToggle').checked = settings.keepRunningOnClose;
@@ -1083,6 +1112,63 @@
       document.getElementById('keepRunningToggle').disabled = false;
       document.getElementById('menuBarStyle').disabled = false;
       document.getElementById('nativeSettingsStatus').textContent = '';
+      renderConnection(nativePreferences.connection, connectionReply);
+      if (connectionReply && settings.error) {
+        document.getElementById('connectionStatus').textContent = settings.error;
+        showToast(settings.error, 'error');
+      }
+    }
+
+    function renderConnection(connection, acknowledged) {
+      if (!connection || !['local', 'remote'].includes(connection.mode)) return;
+      document.getElementById('btnSaveConnection').disabled = false;
+      // Don't overwrite fields the user is editing; refresh only on first render or a native reply.
+      if (connectionRendered && !acknowledged) return;
+      connectionRendered = true;
+      document.querySelector(`input[name="connectionMode"][value="${connection.mode}"]`).checked = true;
+      document.getElementById('connectionServerURL').value = connection.serverURL || '';
+      document.getElementById('connectionApiKey').value = '';
+      document.getElementById('connectionApiKey').placeholder = connection.hasApiKey ? 'Saved — leave blank to keep it' : 'Leave empty if the server has no API_KEY';
+      document.getElementById('clearApiKey').checked = false;
+      document.getElementById('clearApiKeyOption').hidden = !connection.hasApiKey;
+      document.getElementById('connectionStatus').textContent = '';
+      renderConnectionMode();
+    }
+
+    function renderConnectionMode() {
+      const remote = document.querySelector('input[name="connectionMode"]:checked')?.value === 'remote';
+      document.getElementById('remoteConnectionFields').hidden = !remote;
+    }
+
+    function saveConnection() {
+      const status = document.getElementById('connectionStatus');
+      const handler = window.webkit?.messageHandlers?.settings;
+      const mode = document.querySelector('input[name="connectionMode"]:checked')?.value;
+      if (!handler || !mode || nativePending.connection) return;
+      const connection = { mode };
+      if (mode === 'remote') {
+        const serverURL = document.getElementById('connectionServerURL').value.trim();
+        let parsed = null;
+        try { parsed = new URL(serverURL); } catch (err) {}
+        if (!parsed || !['http:', 'https:'].includes(parsed.protocol)) {
+          status.textContent = 'Enter a server URL starting with http:// or https://.';
+          return;
+        }
+        connection.serverURL = serverURL;
+        const apiKey = document.getElementById('connectionApiKey').value.trim();
+        if (apiKey) connection.apiKey = apiKey;
+        else if (document.getElementById('clearApiKey').checked) connection.apiKey = '';
+      }
+      document.getElementById('btnSaveConnection').disabled = true;
+      status.textContent = 'Reconnecting...';
+      // Success navigates the page away; a reply or timeout means it did not switch.
+      nativePending.connection = setTimeout(() => {
+        delete nativePending.connection;
+        document.getElementById('btnSaveConnection').disabled = false;
+        status.textContent = 'The app did not switch connections. Try again.';
+        showToast(status.textContent, 'error');
+      }, 10000);
+      handler.postMessage({ connection });
     }
 
     function saveNativeSetting(key, value) {
@@ -1440,11 +1526,7 @@
       document.querySelectorAll('.tab-item').forEach((btn, index) => {
         btn.classList.toggle('active', allTabs[index] === tabId);
       });
-      document.querySelectorAll('.cockpit-card, .metrics-row').forEach(overview => {
-        overview.style.display = tabId === 'settings' ? 'none' : '';
-      });
       if (tabId === 'settings') {
-        window.scrollTo(0, 0);
         loadPriorities();
         pollFullState();
         applyNativeSettings(nativePreferences || window.nativeSettings);

@@ -185,11 +185,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         publishNativeSettings()
     }
 
-    func publishNativeSettings() {
-        let settings: [String: Any] = [
+    func publishNativeSettings(error: String? = nil) {
+        var settings: [String: Any] = [
             "keepRunningOnClose": keepRunningOnClose,
-            "menuBarStyle": menuBarStyle.rawValue
+            "menuBarStyle": menuBarStyle.rawValue,
+            // The API key never leaves native storage; the page only learns whether one is saved.
+            "connection": [
+                "mode": isRemote ? "remote" : "local",
+                "serverURL": isRemote ? effectiveURL.absoluteString : "",
+                "hasApiKey": !apiKey.isEmpty
+            ]
         ]
+        if let error { settings["error"] = error }
         guard let data = try? JSONSerialization.data(withJSONObject: settings),
               let json = String(data: data, encoding: .utf8) else { return }
         webView.evaluateJavaScript("""
@@ -200,10 +207,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "settings", message.frameInfo.isMainFrame,
-              let url = message.frameInfo.request.url,
-              url.scheme == effectiveURL.scheme, url.host == effectiveURL.host,
-              url.port == effectiveURL.port,
               let settings = message.body as? [String: Any] else { return }
+        // Recovery path from the offline page, which has no dashboard to configure.
+        if settings["openConnectionSettings"] as? Bool == true {
+            showConnectionSettings()
+            return
+        }
+        guard let url = message.frameInfo.request.url,
+              url.scheme == effectiveURL.scheme, url.host == effectiveURL.host,
+              url.port == effectiveURL.port else { return }
+        if let connection = settings["connection"] as? [String: Any] {
+            applyConnection(connection)
+            return
+        }
         if let keepRunning = settings["keepRunningOnClose"] as? Bool {
             keepRunningOnClose = keepRunning
         }
@@ -213,6 +229,35 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         setupMainMenu()
         updateUI()
         publishNativeSettings()
+    }
+
+    func applyConnection(_ connection: [String: Any]) {
+        guard let mode = connection["mode"] as? String, mode == "local" || mode == "remote" else {
+            publishNativeSettings(error: "Choose a local or remote miner.")
+            return
+        }
+        let remote = mode == "remote"
+        var newURL = "http://127.0.0.1:23432"
+        if remote {
+            let raw = (connection["serverURL"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let parsed = URL(string: raw), ["http", "https"].contains(parsed.scheme ?? ""),
+                  let host = parsed.host, !host.isEmpty else {
+                publishNativeSettings(error: "Enter a server URL starting with http:// or https://.")
+                return
+            }
+            newURL = raw
+        }
+        isRemote = remote
+        serverURLString = newURL
+        // Absent key keeps the saved one; an empty string removes it.
+        if let key = connection["apiKey"] as? String {
+            apiKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if !remote {
+            checkOrStartLocalBackend()
+        }
+        reloadConnection()
+        updateUI()
     }
 
     @objc func showSettings() {
@@ -247,6 +292,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         <h2>Connecting to Miner Daemon</h2>
         <p>Target: <code>\(modeStr)</code><br>The service is starting. This view will refresh automatically once connected.</p>
         <button class="btn" onclick="location.reload()">Retry Connection</button>
+        <button class="btn" onclick="window.webkit.messageHandlers.settings.postMessage({openConnectionSettings: true})">Connection Settings…</button>
         </div>
         <script>setTimeout(function(){ location.reload(); }, 2000);</script>
         </body></html>
