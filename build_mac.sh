@@ -14,7 +14,7 @@ mkdir -p "$RESOURCES_DIR"
 
 # 1. Compile Swift native menu bar application
 echo "==> Compiling Swift menu bar binary..."
-swiftc -O "$DIR/mac/main.swift" -o "$MACOS_DIR/TwitchDropsMinerMenu"
+swiftc -O "$DIR/mac/main.swift" "$DIR"/mac/Sources/MinerCore/*.swift -o "$MACOS_DIR/TwitchDropsMinerMenu"
 chmod +x "$MACOS_DIR/TwitchDropsMinerMenu"
 
 # 2. Copy AppIcon.icns and MenuBarIcon.png
@@ -46,9 +46,9 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.4.2</string>
+    <string>1.4.3</string>
     <key>CFBundleVersion</key>
-    <string>1.4.2</string>
+    <string>1.4.3</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIconName</key>

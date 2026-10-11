@@ -39,13 +39,14 @@
 - **Framework:** Playwright for Python (Chromium), against a real in-process backend whose Twitch upstream is virtualized. It lives in `tests/e2e/`.
 
 ### Native macOS shell
-- **Framework:** None. `main.swift` is a single executable target without an XCTest bundle; it is verified manually (see Risk Areas).
+- **Unit:** Swift Testing in a SwiftPM package (`mac/Package.swift`). The pure logic lives in `mac/Sources/MinerCore/`: connection rules, URLs, settings bridge, status parsing, and menu bar presentation. `main.swift` stays the AppKit glue. `build_mac.sh` compiles both into the app. Run with `swift test --package-path mac`.
+- **UI smoke:** `tests/native/test_native_app.py` builds a test copy with bundle id `dev.brasilio.TwitchDropsMinerEnhanced.uitest` (a separate defaults domain), connects it to the isolated E2E harness backend, and drives it through System Events. It covers the window title, Settings menu, close-to-menu-bar and reopen, close-to-quit, and connection persistence. It is local-only (needs Accessibility permission); enable it with `RUN_NATIVE_UI=1`, otherwise it is skipped.
 
 ## CI/CD
 
 - **Platform:** GitHub Actions.
-- `.github/workflows/tests.yml` runs the full Python suite (unit, API, E2E) with coverage on every push and pull request. A coverage floor blocks merges on regression.
-- `.github/workflows/release.yml` runs on `v*` tags. It runs the regression suite before building the app, DMG, and ZIP (`TwitchDropsMinerEnhanced-vX.Y.Z-macOS-arm64.*`) and publishing the GitHub release.
+- `.github/workflows/tests.yml` runs the full Python suite (unit, API, E2E) with coverage on Python 3.10/3.12, and `swift test --package-path mac` on macOS, for every push and pull request. A coverage floor blocks merges on regression.
+- `.github/workflows/release.yml` runs on `v*` tags. It runs the Python suite and the Swift tests before building the app, DMG, and ZIP (`TwitchDropsMinerEnhanced-vX.Y.Z-macOS-arm64.*`) and publishing the GitHub release. Run the native UI smoke locally before tagging changes to `mac/`.
 - `.github/workflows/ci.yml` is the inherited upstream multi-platform PyInstaller build and is not a quality gate.
 
 ## Environments
@@ -57,22 +58,22 @@
 ## Quality Goals
 
 - **Suite:** Every regression test passes before any release tag publishes (enforced in `release.yml`).
-- **Coverage:** Branch coverage, measured by coverage.py on product modules only (legacy/tooling modules omitted; reasons in `.coveragerc`). Gated in CI by `fail_under` in `.coveragerc`, currently **72%** total. That is the measured baseline after the regression suite landed, up from 30%; raise it whenever coverage improves and never lower it. Measured per module: `websocket.py` 90%, `inventory.py` 87%, `state_hub.py` 86%, `api.py` 78%, `utils.py` 68%, `twitch.py` 60%, `channel.py` 53%. Next targets: CRITICAL modules ≥ 80% (`api.py`, selection/lifecycle paths in `twitch.py`).
+- **Coverage:** Branch coverage, measured by coverage.py on product modules only (legacy/tooling modules omitted; reasons in `.coveragerc`). Gated in CI by `fail_under` in `.coveragerc`, currently **86%** total (30% before v1.4.2, 72% at v1.4.2). Raise it whenever coverage improves and never lower it. Measured per module (v1.4.3): `twitch.py` 89%, `state_hub.py` 89%, `inventory.py` 87%, `utils.py` 85%, `channel.py` 84%, `websocket.py` 90%, `api.py` 78%. Next target: `api.py` ≥ 80%.
 - **Flakiness:** 0 tolerated flaky tests. Tests are deterministic: fixed clock, no real network, no sleeps for synchronization.
 - **Duration:** Unit + API suite < 60 s; E2E < 3 min.
 
 ## Risk Areas
 
-Scored Impact (1–5) × Probability (1–5). Probability reflects churn over the last three months: `web/index.html` 17 commits, `mac/main.swift` 14, `api.py` 11, `twitch.py` 9, `state_hub.py` 8. The coverage column reflects the regression suite added in v1.4.2 (127 tests).
+Scored Impact (1–5) × Probability (1–5). Probability reflects churn over the last three months: `web/index.html` 17 commits, `mac/main.swift` 14, `api.py` 11, `twitch.py` 9, `state_hub.py` 8. The coverage column reflects the suite as of v1.4.3: 256 Python tests and 51 Swift tests.
 
 | # | Area | Impact | Prob. | Score | Zone | Business impact | Current coverage / gap |
 |---|------|--------|-------|-------|------|-----------------|------------------------|
 | 1 | Campaign eligibility, visibility & claiming (`inventory.py`, `StateHub.get_inventory`, claim endpoint) | 4 | 4 | 16 | CRITICAL | Rewards lost, or users see stale, unclaimable campaigns | `inventory.py` 87%. `test_campaign_visibility`, `test_drop_progress` (preconditions, earning window, ACL, progress, claim window, claim outcomes), claim endpoint in `test_api_contract`. Gap: live progress via PubSub drop events end-to-end |
-| 2 | Channel selection & watching (`can_watch`, `should_switch`, `get_priority`, priority modes, Watch control) | 4 | 4 | 16 | CRITICAL | Mining the wrong game or nothing at all; progress silently stalls | `test_channel_selection` drives the real `_run` state machine through priority modes and switching. `twitch.py` 60%. Gap: the watch loop's stream-playlist requests |
-| 3 | Account lifecycle (connect, disconnect, token replacement, cookies, persisted logout, rejected token) | 5 | 3 | 15 | CRITICAL | Credential leakage, or an account the user believes is disconnected keeps mining | `test_account_lifecycle` (10) + E2E account specs, including rejected-token recovery (bug fixed in v1.4.2) |
+| 2 | Channel selection & watching (`can_watch`, `should_switch`, `get_priority`, priority modes, Watch control) | 4 | 4 | 16 | CRITICAL | Mining the wrong game or nothing at all; progress silently stalls | `test_channel_selection` (real `_run` state machine), `test_channel` (stream status, online/offline transitions, `send_watch` playlist/segment requests), `test_twitch_runtime` (watch loop, maintenance schedule, PubSub stream/drop events). `twitch.py` 89%, `channel.py` 84% |
+| 3 | Account lifecycle (connect, disconnect, token replacement, cookies, persisted logout, rejected token, device-code login) | 5 | 3 | 15 | CRITICAL | Credential leakage, or an account the user believes is disconnected keeps mining | `test_account_lifecycle` (10), `test_twitch_transport` (device-code login, including expired-code renewal; request retries; GQL errors), and the E2E account specs |
 | 4 | REST API contract & remote security (`API_KEY` middleware, input validation, no credential echo) | 5 | 3 | 15 | CRITICAL | A remote daemon is controllable by anyone, or its token is exposed | `test_api_contract` (22): key sources, exemptions, CORS, atomic settings validation (bugs fixed in v1.4.2), credential non-exposure. `api.py` 78% |
 | 5 | Dashboard UI state (Settings page, account controls visibility, auto-claim sync, priorities editor, Watch buttons, activation banner) | 3 | 5 | 15 | CRITICAL | Users act on wrong state (e.g. Connect shown while connected, hidden Disconnect) | `tests/e2e/test_settings_dashboard.py` (Playwright, 20 specs) |
-| 6 | Native macOS shell (close-to-menu-bar, connection switch, settings bridge, status item) | 3 | 4 | 12 | HIGH | App quits unexpectedly or can't reach a remote miner | Web side of the bridge covered by E2E with a simulated `webkit` handler. Native code is manual only (no XCTest target). Release smoke: close window, open Settings, switch Local↔Remote |
+| 6 | Native macOS shell (close-to-menu-bar, connection switch, settings bridge, status item) | 3 | 4 | 12 | HIGH | App quits unexpectedly or can't reach a remote miner | Swift unit tests (`mac/Tests`, 51) run in CI. The local UI smoke (`tests/native`, 5) covers close/reopen, Settings, and connection persistence. The web side of the bridge is covered by Playwright E2E |
 | 7 | Twitch PubSub pool (`websocket.py`: topic sharding, reconnect, message dispatch) | 4 | 3 | 12 | HIGH | Progress and online status stop updating; drops not credited | `test_pubsub_pool` (11) against a fake PubSub server. `websocket.py` 90% |
 | 8 | Settings persistence (`settings.py`, `settings.json` defaults & round-trip) | 3 | 2 | 6 | MEDIUM | Preferences reset after restart | `test_settings_persistence` (9). `settings.py` 94% |
 | 9 | Release packaging consistency (`version.py` ↔ `build_mac.sh` plist ↔ artifact names) | 3 | 3 | 9 | MEDIUM | Mislabeled or missing release assets | `test_release_metadata` (4) |

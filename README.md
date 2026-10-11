@@ -130,7 +130,9 @@ REQUIRE_E2E=1 ./venv/bin/coverage run -m unittest discover -s tests -v
 - Tests never contact Twitch. Twitch is replaced by local fake servers at the network boundary, and the miner's own API, account lifecycle, and settings persistence run for real against temporary data directories.
 - The dashboard E2E tests (`tests/e2e/`) use Playwright with Chromium. Without Playwright installed they are skipped; `REQUIRE_E2E=1` turns that into a failure, as in CI.
 - `coverage report` fails below the floor in `.coveragerc`. Raise that floor when coverage improves; never lower it.
-- The **Tests** workflow runs the suite on Python 3.10 and 3.12 for every push and pull request. Release tags run it again before packaging.
+- The native app's logic (connection rules, URLs, settings bridge, status parsing, menu bar text) has Swift tests: `swift test --package-path mac`.
+- A native UI smoke test drives a separate test copy of the app (its own bundle id and settings) against a fake miner: `RUN_NATIVE_UI=1 ./venv/bin/python -m unittest tests.native.test_native_app -v`. It needs Accessibility permission for your terminal and runs only on demand, never in CI.
+- The **Tests** workflow runs the Python suite on Python 3.10 and 3.12, and the Swift tests on macOS, for every push and pull request. Release tags run both again before packaging.
 - Risk areas, priorities, and test conventions are recorded in `.agents/qa-project-context.md`.
 
 ---

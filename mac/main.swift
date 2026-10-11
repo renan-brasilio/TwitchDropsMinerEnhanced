@@ -15,23 +15,6 @@ class WindowDelegate: NSObject, NSWindowDelegate {
         return false
     }
 }
-enum MenuBarStyle: String, CaseIterable {
-    case iconOnly = "iconOnly"
-    case currentMining = "currentMining"
-    case timeLeft = "timeLeft"
-    case percentage = "percentage"
-    case full = "full"
-
-    var title: String {
-        switch self {
-        case .iconOnly: return "Icon Only"
-        case .currentMining: return "Icon + Current Game (e.g. Overwatch)"
-        case .timeLeft: return "Icon + Time Left (e.g. 35m)"
-        case .percentage: return "Icon + Percentage (e.g. 65%)"
-        case .full: return "Icon + Full Status (e.g. 65% Overwatch)"
-        }
-    }
-}
 
 class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var mainWindow: NSWindow!
@@ -44,21 +27,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     var backendProcess: Process?
 
     // Configuration
-    var isRemote: Bool {
-        get { UserDefaults.standard.bool(forKey: "isRemote") }
-        set { UserDefaults.standard.set(newValue, forKey: "isRemote") }
-    }
-    var serverURLString: String {
+    var connection: ConnectionSettings {
         get {
-            let val = UserDefaults.standard.string(forKey: "serverURL") ?? ""
-            return val.isEmpty ? "http://127.0.0.1:23432" : val
+            let defaults = UserDefaults.standard
+            return ConnectionSettings(
+                isRemote: defaults.bool(forKey: "isRemote"),
+                serverURL: defaults.string(forKey: "serverURL"),
+                apiKey: defaults.string(forKey: "apiKey")
+            )
         }
-        set { UserDefaults.standard.set(newValue, forKey: "serverURL") }
+        set {
+            let defaults = UserDefaults.standard
+            defaults.set(newValue.isRemote, forKey: "isRemote")
+            defaults.set(newValue.serverURL, forKey: "serverURL")
+            defaults.set(newValue.apiKey, forKey: "apiKey")
+        }
     }
-    var apiKey: String {
-        get { UserDefaults.standard.string(forKey: "apiKey") ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: "apiKey") }
-    }
+    var isRemote: Bool { connection.isRemote }
+    var effectiveURL: URL { connection.effectiveURL }
+
     var menuBarStyle: MenuBarStyle {
         get {
             let raw = UserDefaults.standard.string(forKey: "menuBarStyle") ?? "iconOnly"
@@ -72,28 +59,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         set { UserDefaults.standard.set(newValue, forKey: "keepRunningOnClose") }
     }
 
-    var effectiveURL: URL {
-        let trimmed = serverURLString.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
-            return URL(string: trimmed) ?? URL(string: "http://127.0.0.1:23432")!
-        }
-        return URL(string: "http://\(trimmed)") ?? URL(string: "http://127.0.0.1:23432")!
-    }
-
     // State cache
-    var minerState: String = "CONNECTING"
-    var statusText: String = "Connecting..."
-    var activeGame: String? = nil
-    var activeDropName: String? = nil
-    var activeDropPercent: Double = 0.0
-    var activeDropMinutes: String? = nil
-    var activeDropRemaining: Int = 0
-    var activeChannel: String? = nil
-    var activeViewers: Int = 0
-    var isLoggedIn: Bool = false
+    var status = MinerStatus()
     var hasLoadedDashboard: Bool = false
-    var deviceCode: String? = nil
-    var deviceUri: String? = nil
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set Dock Application Icon
         if let iconPath = Bundle.main.path(forResource: "AppIcon", ofType: "icns"),
@@ -186,78 +154,51 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     }
 
     func publishNativeSettings(error: String? = nil) {
-        var settings: [String: Any] = [
-            "keepRunningOnClose": keepRunningOnClose,
-            "menuBarStyle": menuBarStyle.rawValue,
-            // The API key never leaves native storage; the page only learns whether one is saved.
-            "connection": [
-                "mode": isRemote ? "remote" : "local",
-                "serverURL": isRemote ? effectiveURL.absoluteString : "",
-                "hasApiKey": !apiKey.isEmpty
-            ]
-        ]
-        if let error { settings["error"] = error }
-        guard let data = try? JSONSerialization.data(withJSONObject: settings),
-              let json = String(data: data, encoding: .utf8) else { return }
-        webView.evaluateJavaScript("""
-            window.nativeSettings = \(json);
-            window.dispatchEvent(new CustomEvent('native-settings', {detail: window.nativeSettings}));
-            """, completionHandler: nil)
+        let settings = NativeSettingsPayload.make(
+            keepRunningOnClose: keepRunningOnClose,
+            menuBarStyle: menuBarStyle,
+            connection: connection,
+            error: error
+        )
+        guard let script = NativeSettingsPayload.script(for: settings) else { return }
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "settings", message.frameInfo.isMainFrame,
-              let settings = message.body as? [String: Any] else { return }
-        // Recovery path from the offline page, which has no dashboard to configure.
-        if settings["openConnectionSettings"] as? Bool == true {
+        guard let parsed = BridgeMessage.parse(
+            name: message.name,
+            isMainFrame: message.frameInfo.isMainFrame,
+            body: message.body,
+            frameURL: message.frameInfo.request.url,
+            connection: connection
+        ) else { return }
+        switch parsed {
+        case .openConnectionSettings:
+            // Recovery path from the offline page, which has no dashboard to configure.
             showConnectionSettings()
-            return
+        case .connection(let request):
+            applyConnection(request)
+        case .preferences(let keepRunning, let style):
+            if let keepRunning { keepRunningOnClose = keepRunning }
+            if let style { menuBarStyle = style }
+            setupMainMenu()
+            updateUI()
+            publishNativeSettings()
         }
-        guard let url = message.frameInfo.request.url,
-              url.scheme == effectiveURL.scheme, url.host == effectiveURL.host,
-              url.port == effectiveURL.port else { return }
-        if let connection = settings["connection"] as? [String: Any] {
-            applyConnection(connection)
-            return
-        }
-        if let keepRunning = settings["keepRunningOnClose"] as? Bool {
-            keepRunningOnClose = keepRunning
-        }
-        if let raw = settings["menuBarStyle"] as? String, let style = MenuBarStyle(rawValue: raw) {
-            menuBarStyle = style
-        }
-        setupMainMenu()
-        updateUI()
-        publishNativeSettings()
     }
 
-    func applyConnection(_ connection: [String: Any]) {
-        guard let mode = connection["mode"] as? String, mode == "local" || mode == "remote" else {
-            publishNativeSettings(error: "Choose a local or remote miner.")
-            return
-        }
-        let remote = mode == "remote"
-        var newURL = "http://127.0.0.1:23432"
-        if remote {
-            let raw = (connection["serverURL"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let parsed = URL(string: raw), ["http", "https"].contains(parsed.scheme ?? ""),
-                  let host = parsed.host, !host.isEmpty else {
-                publishNativeSettings(error: "Enter a server URL starting with http:// or https://.")
-                return
+    func applyConnection(_ request: [String: Any]) {
+        switch connection.applying(request) {
+        case .failure(let error):
+            publishNativeSettings(error: error.message)
+        case .success(let updated):
+            connection = updated
+            if !updated.isRemote {
+                checkOrStartLocalBackend()
             }
-            newURL = raw
+            reloadConnection()
+            updateUI()
         }
-        isRemote = remote
-        serverURLString = newURL
-        // Absent key keeps the saved one; an empty string removes it.
-        if let key = connection["apiKey"] as? String {
-            apiKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        if !remote {
-            checkOrStartLocalBackend()
-        }
-        reloadConnection()
-        updateUI()
     }
 
     @objc func showSettings() {
@@ -407,24 +348,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         menu.addItem(NSMenuItem.separator())
 
         // 2. Status Row with Indicator
-        let statusDot: String
-        switch minerState {
-        case "IDLE": statusDot = "○ Idle"
-        case "OFFLINE": statusDot = "■ Offline"
-        case "CHANNEL_SWITCH", "CHANNELS_FETCH", "INVENTORY_FETCH": statusDot = "↻ Syncing"
-        default: statusDot = "● Active"
-        }
-        let modeStr = isRemote ? "[Remote]" : "[Local]"
-        let statusMenuItem = NSMenuItem(title: "Status: \(statusDot) \(modeStr)", action: nil, keyEquivalent: "")
-        menu.addItem(statusMenuItem)
+        menu.addItem(NSMenuItem(title: StatusPresentation.statusLine(status: status, isRemote: isRemote), action: nil, keyEquivalent: ""))
 
-        let detailItem = NSMenuItem(title: "Task: \(statusText)", action: nil, keyEquivalent: "")
+        let detailItem = NSMenuItem(title: "Task: \(status.statusText)", action: nil, keyEquivalent: "")
         menu.addItem(detailItem)
 
         menu.addItem(NSMenuItem.separator())
 
         // 3. Active Drop & Game
-        if let drop = activeDropName, let game = activeGame {
+        if let drop = status.activeDropName, let game = status.activeGame {
             let dropHeader = NSMenuItem(title: "Game: \(game)", action: nil, keyEquivalent: "")
             dropHeader.attributedTitle = NSAttributedString(
                 string: "Game: \(game)",
@@ -435,9 +367,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
             let dropItem = NSMenuItem(title: "Reward: \(drop)", action: nil, keyEquivalent: "")
             menu.addItem(dropItem)
 
-            let bar = renderProgressBar(percent: activeDropPercent, length: 10)
-            let timeInfo = activeDropMinutes ?? ""
-            let progressStr = "Progress: \(bar) \(Int(activeDropPercent))% (\(timeInfo) • \(activeDropRemaining)m left)"
+            let progressStr = StatusPresentation.progressLine(status: status)
             let progressItem = NSMenuItem(title: progressStr, action: nil, keyEquivalent: "")
             menu.addItem(progressItem)
         } else {
@@ -447,8 +377,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         }
 
         // 4. Streamer info
-        if let ch = activeChannel {
-            let streamerStr = "Channel: \(ch) (\(activeViewers.formatted()) viewers)"
+        if let ch = status.activeChannel {
+            let streamerStr = "Channel: \(ch) (\(status.activeViewers.formatted()) viewers)"
             menu.addItem(NSMenuItem(title: streamerStr, action: nil, keyEquivalent: ""))
         } else {
             let noStreamer = NSMenuItem(title: "Channel: None", action: nil, keyEquivalent: "")
@@ -459,7 +389,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         menu.addItem(NSMenuItem.separator())
 
         // 5. Mining Controls
-        if minerState == "IDLE" {
+        if status.minerState == "IDLE" {
             menu.addItem(NSMenuItem(title: "Resume Mining", action: #selector(resumeMining), keyEquivalent: "r"))
         } else {
             menu.addItem(NSMenuItem(title: "Pause Mining", action: #selector(pauseMining), keyEquivalent: "p"))
@@ -469,7 +399,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         menu.addItem(NSMenuItem(title: "Reload Campaigns", action: #selector(reloadCampaigns), keyEquivalent: ""))
 
         // Activation Code Quick Copy (if device code is required)
-        if let code = deviceCode {
+        if let code = status.deviceCode {
             menu.addItem(NSMenuItem.separator())
             let copyItem = NSMenuItem(title: "Copy Activation Code: \(code)", action: #selector(copyActivationCodeAction), keyEquivalent: "")
             copyItem.attributedTitle = NSAttributedString(
@@ -504,75 +434,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         statusItem.menu = menu
     }
 
-    func renderProgressBar(percent: Double, length: Int = 10) -> String {
-        let filled = max(0, min(length, Int(round(Double(length) * (percent / 100.0)))))
-        let empty = length - filled
-        let fillStr = String(repeating: "█", count: filled)
-        let emptyStr = String(repeating: "░", count: empty)
-        return "[\(fillStr)\(emptyStr)]"
-    }
-
     func updateUI() {
         if let button = statusItem.button {
-            switch menuBarStyle {
-            case .iconOnly:
-                button.title = ""
-                button.imagePosition = .imageOnly
-            case .currentMining:
-                if let game = activeGame {
-                    button.title = " \(game)"
-                    button.imagePosition = .imageLeading
-                } else {
-                    button.title = (minerState == "IDLE") ? " Idle" : ""
-                    button.imagePosition = button.title.isEmpty ? .imageOnly : .imageLeading
-                }
-            case .timeLeft:
-                if activeDropRemaining > 0 {
-                    button.title = " \(formatMinutes(activeDropRemaining))"
-                    button.imagePosition = .imageLeading
-                } else {
-                    button.title = ""
-                    button.imagePosition = .imageOnly
-                }
-            case .percentage:
-                if activeDropPercent > 0 {
-                    button.title = " \(Int(activeDropPercent))%"
-                    button.imagePosition = .imageLeading
-                } else {
-                    button.title = ""
-                    button.imagePosition = .imageOnly
-                }
-            case .full:
-                if let game = activeGame, activeDropPercent > 0 {
-                    button.title = " \(Int(activeDropPercent))% \(game)"
-                    button.imagePosition = .imageLeading
-                } else {
-                    button.title = (minerState == "IDLE") ? " Idle" : ""
-                    button.imagePosition = button.title.isEmpty ? .imageOnly : .imageLeading
-                }
-            }
-
-            if let game = activeGame, activeDropPercent > 0 {
-                let timeStr = formatMinutes(activeDropRemaining)
-                button.toolTip = "Twitch Drops Miner Enhanced — \(game): \(Int(activeDropPercent))% (\(timeStr) remaining)"
-            } else {
-                button.toolTip = "Twitch Drops Miner Enhanced — \(statusText)"
-            }
+            button.title = StatusPresentation.menuBarTitle(style: menuBarStyle, status: status)
+            button.imagePosition = button.title.isEmpty ? .imageOnly : .imageLeading
+            button.toolTip = StatusPresentation.toolTip(status: status)
         }
         buildMenu()
 
         // Update main window title with status
-        let modeText = isRemote ? "Remote [\(effectiveURL.host ?? "VPS")]" : "Local"
-        mainWindow.title = "Twitch Drops Miner Enhanced — \(statusText) (\(modeText))"
-    }
-
-    func formatMinutes(_ totalMinutes: Int) -> String {
-        if totalMinutes >= 60 {
-            let h = totalMinutes / 60
-            let m = totalMinutes % 60
-            return m > 0 ? "\(h)h \(m)m" : "\(h)h"
-        }
-        return "\(totalMinutes)m"
+        mainWindow.title = StatusPresentation.windowTitle(status: status, connection: connection)
     }
 
     @objc func changeMenuBarStyle(_ sender: NSMenuItem) {
@@ -664,21 +535,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
 
     // MARK: - Connection & WebSockets
     func reloadConnection() {
-        var targetURL = effectiveURL
-        if !apiKey.isEmpty {
-            var comps = URLComponents(url: targetURL, resolvingAgainstBaseURL: false)
-            var items = comps?.queryItems ?? []
-            items.append(URLQueryItem(name: "key", value: apiKey))
-            comps?.queryItems = items
-            if let u = comps?.url {
-                targetURL = u
-            }
-        }
-
-        var request = URLRequest(url: targetURL)
+        let connection = self.connection
+        var request = URLRequest(url: connection.dashboardURL)
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        if !apiKey.isEmpty {
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        if let authorization = connection.authorizationHeader {
+            request.setValue(authorization, forHTTPHeaderField: "Authorization")
         }
         webView.load(request)
         connectWebSocket()
@@ -686,14 +547,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
 
     func connectWebSocket() {
         webSocketTask?.cancel(with: .goingAway, reason: nil)
-        var wsURLComponents = URLComponents(url: effectiveURL, resolvingAgainstBaseURL: false)
-        wsURLComponents?.scheme = (effectiveURL.scheme == "https") ? "wss" : "ws"
-        wsURLComponents?.path = "/ws"
-        if !apiKey.isEmpty {
-            wsURLComponents?.queryItems = [URLQueryItem(name: "key", value: apiKey)]
-        }
-
-        guard let wsURL = wsURLComponents?.url else { return }
+        guard let wsURL = connection.webSocketURL else { return }
         let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
         webSocketTask = session.webSocketTask(with: wsURL)
         webSocketTask?.resume()
@@ -724,64 +578,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     }
 
     func handleWebSocketText(_ text: String) {
-        guard let data = text.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let event = json["event"] as? String else { return }
+        guard let message = MinerStatus.decodeWebSocketMessage(text) else { return }
 
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            let payload = json["data"]
-
-            if event == "init", let state = payload as? [String: Any] {
-                self.parseStateJSON(state)
-            } else if event == "status", let s = payload as? [String: Any] {
-                self.statusText = s["status"] as? String ?? self.statusText
-                self.minerState = s["state"] as? String ?? self.minerState
-                self.updateUI()
-            } else if event == "drop" {
-                if let drop = payload as? [String: Any] {
-                    self.activeDropName = drop["name"] as? String
-                    self.activeGame = drop["game"] as? String
-                    self.activeDropPercent = drop["percentage"] as? Double ?? 0.0
-                    let curr = drop["current_minutes"] as? Int ?? 0
-                    let req = drop["required_minutes"] as? Int ?? 60
-                    self.activeDropRemaining = drop["remaining_minutes"] as? Int ?? 0
-                    self.activeDropMinutes = "\(curr)/\(req)m"
-                } else {
-                    self.activeDropName = nil
-                    self.activeGame = nil
-                    self.activeDropPercent = 0.0
-                    self.activeDropMinutes = nil
-                }
-                self.updateUI()
-            } else if event == "watching" {
-                if let ch = payload as? [String: Any] {
-                    self.activeChannel = ch["name"] as? String
-                    self.activeViewers = ch["viewers"] as? Int ?? 0
-                } else {
-                    self.activeChannel = nil
-                    self.activeViewers = 0
-                }
+            if self.status.apply(event: message.event, payload: message.payload) {
                 self.updateUI()
             }
         }
     }
 
     func pollStatus() {
-        guard let url = URL(string: "\(effectiveURL.absoluteString)/api/status") else { return }
+        let connection = self.connection
+        guard let url = connection.apiURL("/api/status") else { return }
         var req = URLRequest(url: url)
-        if !apiKey.isEmpty {
-            req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        if let authorization = connection.authorizationHeader {
+            req.setValue(authorization, forHTTPHeaderField: "Authorization")
         }
         URLSession.shared.dataTask(with: req) { [weak self] data, _, error in
             guard let data = data, error == nil,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 DispatchQueue.main.async {
-                    if self?.minerState != "OFFLINE" {
-                        self?.minerState = "OFFLINE"
-                        self?.statusText = "Backend not reachable"
-                        self?.updateUI()
-                    }
+                    guard let self, self.status.minerState != "OFFLINE" else { return }
+                    self.status.minerState = "OFFLINE"
+                    self.status.statusText = "Backend not reachable"
+                    self.updateUI()
                 }
                 return
             }
@@ -796,52 +617,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     }
 
     func parseStateJSON(_ json: [String: Any]) {
-        minerState = json["state"] as? String ?? "IDLE"
-        statusText = json["status_text"] as? String ?? "Idle"
-        isLoggedIn = json["is_logged_in"] as? Bool ?? false
-
-        if let drop = json["active_drop"] as? [String: Any] {
-            activeDropName = drop["name"] as? String
-            activeGame = drop["game"] as? String
-            activeDropPercent = drop["percentage"] as? Double ?? 0.0
-            let curr = drop["current_minutes"] as? Int ?? 0
-            let req = drop["required_minutes"] as? Int ?? 60
-            activeDropRemaining = drop["remaining_minutes"] as? Int ?? 0
-            activeDropMinutes = "\(curr)/\(req)m"
-        } else {
-            activeDropName = nil
-            activeGame = nil
-            activeDropPercent = 0.0
-            activeDropMinutes = nil
-        }
-
-        if let ch = json["active_channel"] as? [String: Any] {
-            activeChannel = ch["name"] as? String
-            activeViewers = ch["viewers"] as? Int ?? 0
-        } else {
-            activeChannel = nil
-            activeViewers = 0
-        }
-
-        if let dc = json["device_code"] as? [String: Any] {
-            deviceCode = dc["code"] as? String
-            deviceUri = dc["uri"] as? String
-        } else {
-            deviceCode = nil
-            deviceUri = nil
-        }
-
+        status.apply(snapshot: json)
         updateUI()
     }
 
     // MARK: - Actions
     func sendPostRequest(endpoint: String, json: [String: Any]? = nil) {
-        guard let url = URL(string: "\(effectiveURL.absoluteString)\(endpoint)") else { return }
+        let connection = self.connection
+        guard let url = connection.apiURL(endpoint) else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if !apiKey.isEmpty {
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        if let authorization = connection.authorizationHeader {
+            request.setValue(authorization, forHTTPHeaderField: "Authorization")
         }
 
         if let json = json, let data = try? JSONSerialization.data(withJSONObject: json) {
@@ -860,7 +648,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     @objc func claimDropsAction() { sendPostRequest(endpoint: "/api/control/claim") }
 
     @objc func copyActivationCodeAction() {
-        if let code = deviceCode {
+        if let code = status.deviceCode {
             let pb = NSPasteboard.general
             pb.clearContents()
             pb.setString(code, forType: .string)
@@ -868,7 +656,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     }
 
     @objc func openActivationPage() {
-        let uri = deviceUri ?? "https://www.twitch.tv/activate"
+        let uri = status.deviceUri ?? "https://www.twitch.tv/activate"
         if let url = URL(string: uri) {
             NSWorkspace.shared.open(url)
         }
@@ -901,7 +689,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         container.addSubview(urlLabel)
 
         let urlInput = NSTextField(frame: NSRect(x: 140, y: 132, width: 270, height: 24))
-        urlInput.stringValue = serverURLString
+        urlInput.stringValue = connection.serverURL
         urlInput.placeholderString = "http://100.77.235.18:23432 or https://..."
         container.addSubview(urlInput)
 
@@ -911,7 +699,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         container.addSubview(keyLabel)
 
         let keyInput = NSSecureTextField(frame: NSRect(x: 140, y: 92, width: 270, height: 24))
-        keyInput.stringValue = apiKey
+        keyInput.stringValue = connection.apiKey
         keyInput.placeholderString = "Leave empty if not required"
         container.addSubview(keyInput)
 
@@ -938,20 +726,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
         alert.addButton(withTitle: "Cancel")
 
         if alert.runModal() == .alertFirstButtonReturn {
-            let newIsRemote = (modeSegment.selectedSegment == 1)
-            let newURL = urlInput.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            let newKey = keyInput.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            self.isRemote = newIsRemote
-            self.serverURLString = newURL.isEmpty ? (newIsRemote ? "http://vps:23432" : "http://127.0.0.1:23432") : newURL
-            self.apiKey = newKey
+            connection = ConnectionSettings.fromConnectionDialog(
+                remote: modeSegment.selectedSegment == 1,
+                serverURL: urlInput.stringValue,
+                apiKey: keyInput.stringValue
+            )
 
             if let selectedItem = displayPopup.selectedItem,
                let chosenStyle = MenuBarStyle.allCases.first(where: { $0.title == selectedItem.title }) {
                 self.menuBarStyle = chosenStyle
             }
 
-            print("Updated settings: isRemote=\(self.isRemote), url=\(self.serverURLString), style=\(self.menuBarStyle)")
+            print("Updated settings: isRemote=\(isRemote), url=\(connection.serverURL), style=\(menuBarStyle)")
             reloadConnection()
             updateUI()
         }

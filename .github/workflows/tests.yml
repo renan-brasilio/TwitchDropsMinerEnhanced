@@ -53,3 +53,16 @@ jobs:
           name: coverage-${{ matrix.python-version }}
           path: htmlcov/
           if-no-files-found: ignore
+
+  native-shell:
+    # The System Events UI smoke (tests/native) needs Accessibility permission, which hosted
+    # runners cannot grant; it stays local-only (RUN_NATIVE_UI=1).
+    name: Native macOS shell unit tests
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Swift unit tests
+        run: swift test --package-path mac

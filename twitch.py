@@ -29,7 +29,6 @@ from exceptions import (
     LoginException,
     MinerException,
     RequestInvalid,
-    CaptchaRequired,
     RequestException,
 )
 from utils import (
@@ -67,16 +66,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("TwitchDrops")
 gql_logger = logging.getLogger("TwitchDrops.gql")
-
-
-class SkipExtraJsonDecoder(json.JSONDecoder):
-    def decode(self, s: str, *args):
-        # skip whitespace check
-        obj, end = self.raw_decode(s)
-        return obj
-
-
-SAFE_LOADS = lambda s: json.loads(s, cls=SkipExtraJsonDecoder)
 
 
 def account_work(method):
@@ -145,7 +134,7 @@ class _AuthState:
             "User-Agent": client_info.USER_AGENT,
             "X-Device-Id": getattr(self, "device_id", "default_device"),
         }
-        payload = {
+        device_payload = {
             "client_id": client_info.CLIENT_ID,
             "scopes": "",
         }
@@ -153,7 +142,7 @@ class _AuthState:
             try:
                 now = datetime.now(timezone.utc)
                 async with self._twitch.request(
-                    "POST", "https://id.twitch.tv/oauth2/device", headers=headers, data=payload
+                    "POST", "https://id.twitch.tv/oauth2/device", headers=headers, data=device_payload
                 ) as response:
                     response_json: JsonType = await response.json()
                     if response.status != 200 or "device_code" not in response_json:
@@ -168,7 +157,7 @@ class _AuthState:
 
                 await login_form.ask_enter_code(verification_uri, user_code)
 
-                payload = {
+                token_payload = {
                     "client_id": client_info.CLIENT_ID,
                     "device_code": device_code,
                     "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
@@ -179,7 +168,7 @@ class _AuthState:
                         "POST",
                         "https://id.twitch.tv/oauth2/token",
                         headers=headers,
-                        data=payload,
+                        data=token_payload,
                         invalidate_after=expires_at,
                     ) as response:
                         if response.status != 200:
@@ -190,145 +179,6 @@ class _AuthState:
                         return self.access_token
             except RequestInvalid:
                 continue
-
-    async def _login(self) -> str:
-        logger.info("Login flow started")
-        gui_print = self._twitch.gui.print
-        login_form: LoginForm = self._twitch.gui.login
-        client_info: ClientInfo = self._twitch._client_type
-
-        token_kind: str = ''
-        use_chrome: bool = False
-        payload: JsonType = {
-            # username and password are added later
-            # "username": str,
-            # "password": str,
-            # client ID to-be associated with the access token
-            "client_id": client_info.CLIENT_ID,
-            "undelete_user": False,  # purpose unknown
-            "remember_me": True,  # persist the session via the cookie
-            # "authy_token": str,  # 2FA token
-            # "twitchguard_code": str,  # email code
-            # "captcha": str,  # self-fed captcha
-            # 'force_twitchguard': False,  # force email code confirmation
-        }
-
-        while True:
-            login_data = await login_form.ask_login()
-            payload["username"] = login_data.username
-            payload["password"] = login_data.password
-            # reinstate the 2FA token, if present
-            payload.pop("authy_token", None)
-            payload.pop("twitchguard_code", None)
-            if login_data.token:
-                # if there's no token kind set yet, and the user has entered a token,
-                # we can immediately assume it's an authenticator token and not an email one
-                if not token_kind:
-                    token_kind = "authy"
-                if token_kind == "authy":
-                    payload["authy_token"] = login_data.token
-                elif token_kind == "email":
-                    payload["twitchguard_code"] = login_data.token
-
-            # use fancy headers to mimic the twitch android app
-            headers = {
-                "Accept": "application/vnd.twitchtv.v3+json",
-                "Accept-Encoding": "gzip",
-                "Accept-Language": "en-US",
-                "Client-Id": client_info.CLIENT_ID,
-                "Content-Type": "application/json; charset=UTF-8",
-                "Host": "passport.twitch.tv",
-                "User-Agent": client_info.USER_AGENT,
-                "X-Device-Id": self.device_id,
-                # "X-Device-Id": ''.join(random.choices('0123456789abcdef', k=32)),
-            }
-            async with self._twitch.request(
-                "POST", "https://passport.twitch.tv/login", headers=headers, json=payload
-            ) as response:
-                login_response: JsonType = await response.json(loads=SAFE_LOADS)
-
-            # Feed this back in to avoid running into CAPTCHA if possible
-            if "captcha_proof" in login_response:
-                payload["captcha"] = {"proof": login_response["captcha_proof"]}
-
-            # Error handling
-            if "error_code" in login_response:
-                error_code: int = login_response["error_code"]
-                logger.info(f"Login error code: {error_code}")
-                if error_code == 1000:
-                    logger.info("1000: CAPTCHA is required")
-                    use_chrome = True
-                    break
-                elif error_code in (2004, 3001):
-                    logger.info("3001: Login failed due to incorrect username or password")
-                    gui_print(_("login", "incorrect_login_pass"))
-                    if error_code == 2004:
-                        # invalid username
-                        login_form.clear(login=True)
-                    login_form.clear(password=True)
-                    continue
-                elif error_code in (
-                    3012,  # Invalid authy token
-                    3023,  # Invalid email code
-                ):
-                    logger.info("3012/23: Login failed due to incorrect 2FA code")
-                    if error_code == 3023:
-                        token_kind = "email"
-                        gui_print(_("login", "incorrect_email_code"))
-                    else:
-                        token_kind = "authy"
-                        gui_print(_("login", "incorrect_twofa_code"))
-                    login_form.clear(token=True)
-                    continue
-                elif error_code in (
-                    3011,  # Authy token needed
-                    3022,  # Email code needed
-                ):
-                    # 2FA handling
-                    logger.info("3011/22: 2FA token required")
-                    # user didn't provide a token, so ask them for it
-                    if error_code == 3022:
-                        token_kind = "email"
-                        gui_print(_("login", "email_code_required"))
-                    else:
-                        token_kind = "authy"
-                        gui_print(_("login", "twofa_code_required"))
-                    continue
-                elif error_code >= 5000:
-                    # Special errors, usually from Twitch telling the user to "go away"
-                    # We print the code out to inform the user, and just use chrome flow instead
-                    # {
-                    #     "error_code":5023,
-                    #     "error":"Please update your app to continue",
-                    #     "error_description":"client is not supported for this feature"
-                    # }
-                    # {
-                    #     "error_code":5027,
-                    #     "error":"Please update your app to continue",
-                    #     "error_description":"client blocked from this operation"
-                    # }
-                    gui_print(_("login", "error_code").format(error_code=error_code))
-                    logger.info(str(login_response))
-                    use_chrome = True
-                    break
-                else:
-                    ext_msg = str(login_response)
-                    logger.info(ext_msg)
-                    raise LoginException(ext_msg)
-            # Success handling
-            if "access_token" in login_response:
-                self.access_token = cast(str, login_response["access_token"])
-                logger.info("Access token granted")
-                login_form.clear()
-                break
-
-        if use_chrome:
-            # await self._chrome_login()
-            raise CaptchaRequired()
-
-        if hasattr(self, "access_token"):
-            return self.access_token
-        raise LoginException("Login flow finished without setting the access token")
 
     def headers(self, *, user_agent: str = '', gql: bool = False) -> JsonType:
         client_info: ClientInfo = self._twitch._client_type

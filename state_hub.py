@@ -68,10 +68,6 @@ class LoginHub(_HubComponent):
             except Exception:
                 pass
 
-    async def ask_login(self) -> Any:
-        # For legacy or fallback login; we wait for user credentials via API
-        return await self._hub.wait_for_login_credentials()
-
     def update(self, status_text: str, user_id: int | None = None) -> None:
         self._hub.update_auth_status(status_text, user_id)
 

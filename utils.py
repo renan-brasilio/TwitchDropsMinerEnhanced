@@ -75,7 +75,7 @@ def format_traceback(exc: BaseException, **kwargs: Any) -> str:
     Like `traceback.print_exc` but returns a string. Uses the passed-in exception.
     Any additional `**kwargs` are passed to the underlaying `traceback.format_exception`.
     """
-    return ''.join(traceback.format_exception(type(exc), exc, **kwargs))
+    return ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__, **kwargs))
 
 
 def lock_file(path: Path) -> tuple[bool, io.TextIOWrapper]:
