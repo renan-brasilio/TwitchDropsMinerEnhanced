@@ -466,7 +466,8 @@
       position: sticky;
       top: 64px;
       max-height: calc(100vh - 84px);
-      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
     }
 
     .games-toolbar {
@@ -566,7 +567,12 @@
 
     .games-footer { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
 
-    .priority-list { list-style: none; display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+    /* The list scrolls on its own so the heading and priority mode stay in view. */
+    .priority-list {
+      list-style: none; display: flex; flex-direction: column; gap: 6px; margin: 12px 0;
+      flex: 1 1 auto; min-height: 120px; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px;
+    }
+    .priority-item { flex-shrink: 0; }
 
     .priority-item {
       display: grid;
@@ -594,6 +600,7 @@
     @media (max-width: 900px) {
       .games-page { grid-template-columns: 1fr; }
       .games-order { position: static; max-height: none; order: -1; }
+      .priority-list { max-height: 50vh; }
     }
 
     .pill-online {
