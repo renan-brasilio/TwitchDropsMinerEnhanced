@@ -348,6 +348,8 @@ class DropsCampaign:
         self.name: str = data["name"]
         self.game: Game = Game(data["game"])
         self.linked: bool = data["self"]["isAccountConnected"]
+        # Found via live-stream discovery: Twitch didn't say whether the account is linked.
+        self.link_unknown: bool = data.get("linkUnknown", False)
         self.link_url: str = data["accountLinkURL"]
         # campaign's image actually comes from the game object
         # we use regex to get rid of the dimensions part (ex. ".../game_id-285x380.jpg")
@@ -401,6 +403,10 @@ class DropsCampaign:
     def eligible(self) -> bool:
         if self.has_badge_or_emote:
             return self._twitch.settings.enable_badges_emotes
+        if self.link_unknown:
+            # Choosing a game on the Games page asserts its account link; others aren't mined.
+            game = self.game.name.casefold()
+            return any(name.casefold() == game for name in self._twitch.settings.priority)
         return self.linked
 
     @cached_property

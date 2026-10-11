@@ -144,6 +144,8 @@ class CampaignVisibilityTests(unittest.IsolatedAsyncioTestCase):
         replies = [
             {"data": {"currentUser": {"inventory": {"dropCampaignsInProgress": [data], "gameEventDrops": []}}}},
             {"data": {"currentUser": {"dropCampaigns": []}}},
+            # the empty list triggers stream discovery; nothing is live
+            {"data": {"streams": {"edges": [], "pageInfo": {"hasNextPage": False}}}},
         ]
         with patch.object(self.twitch, "gql_request", AsyncMock(side_effect=replies)):
             response = await self.client.post("/api/inventory/refresh")

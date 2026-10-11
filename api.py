@@ -301,6 +301,8 @@ class APIServer:
                 updates[key] = data[key]
 
         s = self._twitch.settings
+        previous = {name.casefold() for name in s.priority}
+        added_game = any(name.casefold() not in previous for name in updates.get("priority", []))
         for key, value in updates.items():
             setattr(s, key, value)
         s.save(force=True)
@@ -310,8 +312,9 @@ class APIServer:
             "priority_mode": s.priority_mode.value,
             "auto_claim": s.auto_claim,
         })
-        # Trigger reload of games
-        self._twitch.change_state(State.GAMES_UPDATE)
+        # Discovery searches live streams of priority games, so a newly chosen game needs a
+        # campaign refresh; other changes only re-rank the games already known.
+        self._twitch.change_state(State.INVENTORY_FETCH if added_game else State.GAMES_UPDATE)
         return self._json_response({"status": "success", "message": "Settings updated"})
 
     async def _post_auth_token(self, request: web.Request) -> web.Response:

@@ -70,6 +70,12 @@ class FakeTwitchGQL:
         self.claimed_instances = []
 
     async def request(self, ops):
+        if isinstance(ops, list):
+            return [await self.request(op) for op in ops]
+        if "query" in ops:  # campaign discovery: no live Drops Enabled streams, no games found
+            if "DropStreams" in ops["query"]:
+                return {"data": {"streams": {"edges": [], "pageInfo": {"hasNextPage": False}}}}
+            return {"data": {}}
         name = ops["operationName"]
         if name == "Inventory":
             return {"data": {"currentUser": {"inventory": {
@@ -347,6 +353,20 @@ class SettingsEndpointTests(ApiContractTestCase):
         self.assertEqual(set(data["exclude"]), {"Rust", "Apex Legends"})
         self.assertEqual(data["priority_mode"], PriorityMode.ENDING_SOONEST.value)
         self.assertTrue(data["auto_claim"])
+
+    async def test_choosing_a_new_game_refreshes_campaigns_but_reordering_does_not(self):
+        # Discovery searches priority games' live streams, so only an added game needs a refetch.
+        cases = [
+            ({"priority": ["Game", "Overwatch"]}, State.GAMES_UPDATE),       # reorder
+            ({"priority": ["Game"]}, State.GAMES_UPDATE),                    # remove
+            ({"priority": ["GAME", "Valorant"]}, State.INVENTORY_FETCH),     # case change + new game
+            ({"auto_claim": True}, State.GAMES_UPDATE),
+        ]
+        for update, expected in cases:
+            with self.subTest(update=update):
+                self.twitch._state = State.IDLE
+                self.assertEqual((await self.client.post("/api/settings", json=update)).status, 200)
+                self.assertIs(self.twitch._state, expected)
 
     async def test_partial_update_keeps_unspecified_settings(self):
         response = await self.client.post("/api/settings", json={"auto_claim": True})

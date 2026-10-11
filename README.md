@@ -47,6 +47,11 @@
   - A saved game that no longer matches any Twitch game (for example after a rename) is marked **Not found on Twitch**, since it can never be mined.
   - Game names match Twitch case-insensitively, so a saved `Valorant` mines Twitch's `VALORANT`.
   - Browsing and search need a connected Twitch account. The `+ Prioritize` button on every campaign card still adds that game in one click.
+- **Campaign discovery (Twitch-only)**:
+  - Since October 2026 Twitch no longer gives the drop-campaign list to the device-code login this app uses. The miner finds campaigns on Twitch itself instead. It checks live **Drops Enabled** streams for every game in your mining order, plus the most-watched Drops Enabled streams across Twitch, and asks those channels which campaigns they offer.
+  - Campaigns found this way show **Link unknown**, because Twitch no longer says whether your account is linked to the publisher. They are mined only while their game is in your mining order on the Games page. Choosing a game means you've linked its account. Other discovered campaigns are listed but not mined.
+  - Campaigns already in progress keep Twitch's full, account-specific data, including link status and progress.
+  - Only campaigns with someone streaming them right now are found, and those are the only ones that can be mined. Adding a game to your mining order refreshes campaigns right away.
 - **Campaign schedule and reward claiming**:
   - Each campaign shows its start and end dates in your local timezone, plus time remaining.
   - Fully claimed campaigns are hidden. Ended campaigns remain visible only while this account has an eligible, unclaimed reward within Twitch's claim window; only those claimable rewards are listed for ended campaigns.

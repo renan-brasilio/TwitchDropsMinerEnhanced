@@ -491,6 +491,8 @@ class StateHub:
             "game": str(campaign.game),
             "box_art": box_art,
             "linked": campaign.linked,
+            "link_unknown": campaign.link_unknown,
+            "link_url": campaign.link_url if campaign.link_url.startswith("https://") else "",
             "upcoming": campaign.upcoming,
             "active": campaign.active,
             "starts_at": campaign.starts_at.isoformat() if hasattr(campaign, "starts_at") else "",

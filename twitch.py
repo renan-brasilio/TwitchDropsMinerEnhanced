@@ -49,6 +49,11 @@ from constants import (
     MAX_CHANNELS,
     GQL_QUERIES,
     GQL_CATALOG,
+    GQL_DISCOVERY,
+    CATALOG_LOOKUP_MAX,
+    DISCOVERY_STREAM_PAGES,
+    DISCOVERY_CHANNELS_PER_GAME,
+    DISCOVERY_CHANNELS_PER_PRIORITY_GAME,
     WATCH_INTERVAL,
     State,
     ClientType,
@@ -1498,14 +1503,33 @@ class Twitch:
         }
         inventory_data: dict[str, JsonType] = {c["id"]: c for c in ongoing_campaigns}
         # fetch general available campaigns data (campaigns)
-        response = await self.gql_request(GQL_QUERIES["Campaigns"])
-        available_list: list[JsonType] = response["data"]["currentUser"]["dropCampaigns"] or []
+        try:
+            response = await self.gql_request(GQL_QUERIES["Campaigns"])
+            available_list: list[JsonType] = (
+                (response["data"]["currentUser"] or {}).get("dropCampaigns") or []
+            )
+        except GQLException as exc:
+            # The web client needs a browser-minted integrity token we don't have.
+            if "integrity" not in str(exc).casefold():
+                raise
+            available_list = []
         applicable_statuses = ("ACTIVE", "UPCOMING")
         available_campaigns: dict[str, JsonType] = {
             c["id"]: c
             for c in available_list
             if c["status"] in applicable_statuses  # that are currently not expired
         }
+        if not available_campaigns:
+            # Twitch no longer lists campaigns for this login; find them through live streams.
+            status_update(_("gui", "status", "fetching_campaigns"))
+            discovered = await self.discover_campaigns()
+            logger.info(
+                f"Twitch returned no campaign list for this login; found {len(discovered)} "
+                "campaigns on live Drops Enabled streams"
+            )
+            for campaign_id, campaign_data in discovered.items():
+                # in-progress inventory data is complete and account-specific, so it wins
+                inventory_data.setdefault(campaign_id, campaign_data)
         # fetch detailed data for each campaign, in chunks
         status_update(_("gui", "status", "fetching_campaigns"))
         fetch_campaigns_tasks: list[asyncio.Task[Any]] = [
@@ -1617,6 +1641,125 @@ class Twitch:
                 self.change_state(State.GAMES_UPDATE)
         else:
             status_update(previous_status)
+
+    async def discover_campaigns(self) -> dict[str, JsonType]:
+        """
+        Find active campaigns without Twitch's campaign list, using only Twitch itself:
+        live Drops Enabled streams for each priority game plus a few pages across all of
+        Twitch, then each channel's AvailableDrops. Returns campaign data shaped like
+        DropCampaignDetails, flagged with linkUnknown (Twitch no longer reports link state).
+        """
+        channels: dict[str, str] = {}  # channel ID -> game ID it was found under
+        games: dict[str, JsonType] = {}  # game ID -> game data
+        per_game: dict[str, int] = {}
+
+        def add(broadcaster: JsonType | None, game: JsonType | None, cap: int) -> None:
+            if not broadcaster or not game or broadcaster["id"] in channels:
+                return
+            game_id = str(game["id"])
+            if per_game.get(game_id, 0) >= cap:
+                return
+            per_game[game_id] = per_game.get(game_id, 0) + 1
+            games.setdefault(game_id, {k: v for k, v in game.items() if k != "streams"})
+            channels[broadcaster["id"]] = game_id
+
+        priority = list(dict.fromkeys(self.settings.priority))[:CATALOG_LOOKUP_MAX]
+        if priority:
+            data = await self._game_aliases(priority, GQL_DISCOVERY["game_streams"])
+            for game in data.values():
+                for edge in (game.get("streams") or {}).get("edges") or []:
+                    add(edge["node"]["broadcaster"], game, DISCOVERY_CHANNELS_PER_PRIORITY_GAME)
+        after: str | None = None
+        for _ in range(DISCOVERY_STREAM_PAGES):
+            response = await self.gql_request({
+                "query": GQL_DISCOVERY["streams"], "variables": {"first": 30, "after": after},
+            })
+            streams = response["data"]["streams"] or {}
+            edges = streams.get("edges") or []
+            for edge in edges:
+                add(edge["node"]["broadcaster"], edge["node"]["game"], DISCOVERY_CHANNELS_PER_GAME)
+            if not edges or not (streams.get("pageInfo") or {}).get("hasNextPage"):
+                break
+            after = edges[-1]["cursor"]
+
+        found: dict[str, JsonType] = {}
+        for batch in chunk(list(channels), 20):
+            responses = await self.gql_request([
+                GQL_QUERIES["AvailableDrops"].with_variables({"channelID": channel_id})
+                for channel_id in batch
+            ])
+            for response in responses:
+                channel = (response.get("data") or {}).get("channel") or {}
+                for raw in channel.get("viewerDropCampaigns") or []:
+                    found.setdefault(raw["id"], raw)
+
+        # A campaign's game can differ from the stream's (e.g. events on Just Chatting).
+        missing = list(dict.fromkeys(
+            raw["game"]["name"] for raw in found.values()
+            if raw.get("game") and str(raw["game"]["id"]) not in games
+        ))[:CATALOG_LOOKUP_MAX]
+        if missing:
+            for game in (await self._game_aliases(missing, GQL_DISCOVERY["game"])).values():
+                games.setdefault(str(game["id"]), game)
+        campaigns: dict[str, JsonType] = {}
+        for raw in found.values():
+            game = games.get(str((raw.get("game") or {}).get("id")))
+            if game is not None and (data := self._campaign_from_available(raw, game)):
+                campaigns[raw["id"]] = data
+        return campaigns
+
+    async def _game_aliases(self, names: list[str], fields: str) -> dict[int, JsonType]:
+        params = ", ".join(f"$n{i}: String!" for i in range(len(names)))
+        body = " ".join(f"g{i}: game(name: $n{i}) {{ {fields} }}" for i in range(len(names)))
+        response = await self.gql_request({
+            "query": f"query Games({params}) {{ {body} }}",
+            "variables": {f"n{i}": name for i, name in enumerate(names)},
+        })
+        data = response["data"] or {}
+        return {i: data[f"g{i}"] for i in range(len(names)) if data.get(f"g{i}")}
+
+    @staticmethod
+    def _campaign_from_available(raw: JsonType, game: JsonType) -> JsonType | None:
+        """Shape an AvailableDrops campaign like DropCampaignDetails; None if it can't be mined."""
+        drops = [d for d in raw.get("timeBasedDrops") or [] if d.get("startAt") and d.get("endAt")]
+        if not drops or not raw.get("endAt"):
+            return None
+        now = datetime.now(timezone.utc)
+        starts_at = min(drops, key=lambda d: timestamp(d["startAt"]))["startAt"]
+        if timestamp(raw["endAt"]) <= now:
+            return None
+        return {
+            "id": raw["id"],
+            "name": (raw.get("name") or "").strip(),
+            "game": game,
+            "self": {"isAccountConnected": False},
+            "linkUnknown": True,
+            "accountLinkURL": raw.get("detailsURL") or "",
+            "startAt": starts_at,
+            "endAt": raw["endAt"],
+            "status": "UPCOMING" if timestamp(starts_at) > now else "ACTIVE",
+            "allow": {"isEnabled": False, "channels": None},
+            "timeBasedDrops": [
+                {
+                    "id": d["id"],
+                    "name": (d.get("name") or "").strip(),
+                    "startAt": d["startAt"],
+                    "endAt": d["endAt"],
+                    "requiredMinutesWatched": d.get("requiredMinutesWatched") or 0,
+                    "preconditionDrops": None,
+                    "benefitEdges": [
+                        {"benefit": {
+                            "id": edge["benefit"]["id"],
+                            "name": (edge["benefit"].get("name") or "").strip(),
+                            "distributionType": edge["benefit"].get("distributionType", "UNKNOWN"),
+                            "imageAssetURL": edge["benefit"].get("imageAssetURL") or "",
+                        }}
+                        for edge in d.get("benefitEdges") or [] if edge.get("benefit")
+                    ],
+                }
+                for d in drops
+            ],
+        }
 
     def get_active_campaign(self, channel: Channel | None = None) -> DropsCampaign | None:
         if not self.wanted_games:

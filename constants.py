@@ -476,6 +476,27 @@ GQL_CATALOG: dict[str, str] = {
 CATALOG_PAGE_MAX = 60
 CATALOG_LOOKUP_MAX = 50
 
+# Campaign discovery for logins Twitch no longer gives the campaign list to (Oct 2026: the
+# device-code/TV client gets an empty ViewerDropsDashboard). Live Drops Enabled streams are
+# found here, then each channel's DropsHighlightService_AvailableDrops lists its campaigns.
+_DISCOVERY_GAME = "id name displayName slug boxArtURL(width: 285, height: 380)"
+GQL_DISCOVERY: dict[str, str] = {
+    "streams": (
+        "query DropStreams($first: Int!, $after: Cursor) { streams(first: $first, after: $after, "
+        "options: {systemFilters: [DROPS_ENABLED]}) { edges { cursor node { broadcaster { id login } "
+        f"game {{ {_DISCOVERY_GAME} }} }} }} pageInfo {{ hasNextPage }} }} }}"
+    ),
+    # one aliased field per game: g{i}: game(name: $n{i}) {GAME_STREAMS}
+    "game_streams": (
+        f"{_DISCOVERY_GAME} streams(first: 30, options: {{systemFilters: [DROPS_ENABLED]}}) "
+        "{ edges { node { broadcaster { id login } } } }"
+    ),
+    "game": _DISCOVERY_GAME,
+}
+DISCOVERY_STREAM_PAGES = 4  # x30 streams across all of Twitch
+DISCOVERY_CHANNELS_PER_GAME = 3
+DISCOVERY_CHANNELS_PER_PRIORITY_GAME = 10
+
 
 class WebsocketTopic:
     def __init__(
