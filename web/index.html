@@ -115,6 +115,8 @@
       gap: 8px;
     }
 
+    [hidden] { display: none !important; }
+
     .btn {
       display: inline-flex;
       align-items: center;
@@ -787,7 +789,7 @@
             <button class="btn" id="btnCancelDisconnect" onclick="confirmDisconnect(false)">Cancel</button>
           </div>
           <p id="accountError" role="alert" style="color: var(--status-error); margin-top: 8px;"></p>
-          <details style="margin-top: 16px;">
+          <details id="tokenAuthentication" style="margin-top: 16px;">
             <summary style="cursor: pointer; color: var(--text-muted);">Advanced: authenticate with a browser token</summary>
             <div class="instructions-card" style="margin-top: 12px;">
               <strong>Direct browser token authentication:</strong>
@@ -971,6 +973,10 @@
       document.getElementById('btnConnect').disabled = !known || busy || connected || Boolean(activation);
       document.getElementById('btnConnect').textContent = authPending === 'connect' ? 'Connecting...' : 'Connect with Twitch';
       document.getElementById('btnDisconnect').disabled = !known || busy || cachedState.auth_disconnected;
+      // A connected account offers only Disconnect; sign-in options return once disconnected.
+      document.getElementById('btnConnect').hidden = connected;
+      document.getElementById('tokenAuthentication').hidden = connected;
+      document.getElementById('btnDisconnect').hidden = cachedState.auth_disconnected === true;
       document.getElementById('btnConfirmDisconnect').disabled = busy;
       document.getElementById('btnCancelDisconnect').disabled = busy;
       document.getElementById('btnSaveToken').disabled = !known || busy;
