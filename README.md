@@ -97,7 +97,9 @@ The container runs the same miner and dashboard without a window. Everything the
    ```bash
    API_KEY=$(openssl rand -hex 24) docker compose up -d
    ```
-   The compose file publishes the dashboard on `127.0.0.1:23432` only. To expose it, put it behind a reverse proxy with HTTPS (on Dokploy/Traefik: remove `ports`, attach the service to the proxy network and route to container port `23432`).
+   This pulls the published image `ghcr.io/renan-brasilio/twitchdropsminerenhanced` (`linux/amd64` and `linux/arm64`). Every release publishes it as `X.Y.Z`, `X.Y` and `latest`; the compose file uses `latest`, or set `TDME_TAG=1.8.0` to pin a version. The compose file publishes the dashboard on `127.0.0.1:23432` only. To expose it, put it behind a reverse proxy with HTTPS (on Dokploy/Traefik: remove `ports`, attach the service to the proxy network and route to container port `23432`).
+
+   **Staying up to date:** `docker compose pull && docker compose up -d` recreates the container only when a newer image exists; settings and login stay in the volume. Run it on a schedule (cron or a systemd timer) to follow `latest` automatically.
 
 2. **Environment variables:**
    ```env

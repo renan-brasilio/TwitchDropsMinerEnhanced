@@ -1,8 +1,10 @@
 # Standalone use: `API_KEY=... docker compose up -d`, dashboard on http://localhost:23432.
 # Behind a reverse proxy (Traefik/Dokploy), drop `ports` and route to container port 23432.
+# `latest` is the newest release; pin a version tag (e.g. 1.8.0) to hold one back.
+# To build from a checkout instead, replace `image:` with `build: .`.
 services:
   miner:
-    build: .
+    image: ghcr.io/renan-brasilio/twitchdropsminerenhanced:${TDME_TAG:-latest}
     restart: unless-stopped
     ports:
       - "127.0.0.1:23432:23432"
