@@ -1,26 +1,19 @@
-version: '3.8'
-
+# Standalone use: `API_KEY=... docker compose up -d`, dashboard on http://localhost:23432.
+# Behind a reverse proxy (Traefik/Dokploy), drop `ports` and route to container port 23432.
 services:
   miner:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: twitch-drops-miner-enhanced
+    build: .
     restart: unless-stopped
     ports:
-      - "23432:23432"
+      - "127.0.0.1:23432:23432"
     environment:
-      # Optional API key protection when exposing to public internet
-      - API_KEY=
-      # Optional Twitch auth token (or set it via the Web Dashboard / macOS App)
-      - TWITCH_AUTH_TOKEN=
-      - TZ=UTC
+      # Required once the dashboard is reachable from other machines.
+      - API_KEY=${API_KEY:-}
+      # Optional: seeds the Twitch login on first start; the dashboard login works too.
+      - TWITCH_AUTH_TOKEN=${TWITCH_AUTH_TOKEN:-}
+      - TZ=${TZ:-UTC}
     volumes:
-      # Persistent storage for settings, cookies, and logs
-      - ./data:/app/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:23432/api/status"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+      - miner-data:/app/data
+
+volumes:
+  miner-data:

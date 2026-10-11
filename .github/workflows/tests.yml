@@ -66,3 +66,35 @@ jobs:
 
       - name: Run Swift unit tests
         run: swift test --package-path mac
+
+  docker-image:
+    # Builds the server image and checks what a deploy relies on: it turns healthy with
+    # API_KEY set, the API rejects requests without the key, and settings survive a restart.
+    name: Docker image smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t tdme:ci .
+
+      - name: Smoke test
+        run: |
+          set -eu
+          start() {
+            docker run -d --name tdme -p 23432:23432 -e API_KEY=ci-key -v tdme-data:/app/data tdme:ci
+            for _ in $(seq 30); do
+              [ "$(docker inspect tdme --format '{{.State.Health.Status}}')" = healthy ] && return
+              sleep 2
+            done
+            docker logs tdme; exit 1
+          }
+          start
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:23432/api/status)" = 401
+          curl -fsS -H 'X-API-Key: ci-key' -H 'Content-Type: application/json' \
+            -d '{"priority": ["Overwatch"]}' localhost:23432/api/settings
+          docker rm -f tdme
+          start
+          curl -fsS -H 'X-API-Key: ci-key' localhost:23432/api/settings | grep -q '"Overwatch"'

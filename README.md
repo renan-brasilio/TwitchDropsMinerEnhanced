@@ -7,7 +7,7 @@
 >  
 > ⚠️ **Platform Availability:**  
 > • **macOS**: ✅ **Fully Functional & Optimized** (Native `.app` window, `.dmg` installer, and Menu Bar extra).  
-> • **Docker / VPS**: 🟡 **Functional Daemon** (Multi-stage `Dockerfile` and `docker-compose.yml` for 24/7 remote hosting).  
+> • **Docker / VPS**: ✅ **Functional Daemon** (`Dockerfile` and `docker-compose.yml` for 24/7 remote hosting; the image is built and smoke-tested in CI).
 > • **Windows & Linux**: 🚧 **Work in Progress (WIP)** (Headless daemon and web dashboard work; native desktop system tray integration in progress).
 
 ---
@@ -84,27 +84,25 @@
 
 ### 🐳 Remote VPS Deployment (Docker / Dokploy)
 
-You can run the mining engine 24/7 on your VPS inside Docker and connect to it from the macOS desktop app:
+The container runs the same miner and dashboard without a window. Everything the dashboard controls (Twitch login, mining order, priority mode, auto-claim, **Mine now**, **Ignore**) is stored in the container's `/app/data` volume, so the Mac app, a browser and your phone all see one copy. The **Application** settings (close to menu bar, menu bar style, miner connection) belong to the Mac app and stay on the Mac. Run only one miner per Twitch account.
 
-1. **Deploy with Docker Compose:**
+1. **Run it:**
    ```bash
-   docker compose up -d
+   API_KEY=$(openssl rand -hex 24) docker compose up -d
    ```
-   *(Or deploy the repository in **Dokploy** as a Compose stack).*
+   The compose file publishes the dashboard on `127.0.0.1:23432` only. To expose it, put it behind a reverse proxy with HTTPS (on Dokploy/Traefik: remove `ports`, attach the service to the proxy network and route to container port `23432`).
 
-2. **Environment Variables:**
+2. **Environment variables:**
    ```env
-   PORT=23432                           # Web Dashboard & API Port
-   DATA_DIR=/app/data                   # Persistent volume for cookies and settings
-   API_KEY=your_secure_api_key_here     # Optional: Bearer authentication for public access
-   TWITCH_AUTH_TOKEN=your_token_here    # Optional: Pre-configured Twitch auth-token
+   API_KEY=...             # Required once the dashboard is reachable from other machines
+   TWITCH_AUTH_TOKEN=...   # Optional: seeds the Twitch login on first start
+   TZ=Europe/Luxembourg    # Optional: timezone for logs
    ```
+   With `API_KEY` set, every `/api` call needs `Authorization: Bearer <key>`, `X-API-Key: <key>` or `?key=<key>`. The dashboard page itself and the container health check (`GET /`) need no key.
 
-3. **Connect from macOS App:**
-   - Open `TwitchDropsMinerEnhanced.app` on your Mac.
-   - Open **Settings → Application → Miner connection** (or **Connection Settings...** in the menus).
-   - Select **Remote server (Docker)** &rarr; enter your VPS address (e.g. `https://miner.yourdomain.com` or `http://vps-ip:23432`) and API key, then **Save & reconnect**.
-   - The macOS app immediately syncs with your remote miner.
+3. **Sign in to Twitch:** open the dashboard (`https://your-domain/?key=<key>`), choose **Connect**, and enter the code shown at twitch.tv/activate from any device. To move an existing Mac setup instead, copy `settings.json` and `cookies.jar` into the volume before the first start.
+
+4. **Connect from the macOS app:** **Settings → Application → Miner connection → Remote server (Docker)**, enter the URL and API key, then **Save & reconnect**. In Remote mode the app does not start its own local miner.
 
 ---
 

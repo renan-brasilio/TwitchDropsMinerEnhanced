@@ -1,7 +1,6 @@
-# Twitch Drops Miner Enhanced - Docker Container
+# Twitch Drops Miner Enhanced: headless miner + web dashboard/API
 FROM python:3.12-slim
 
-# Prevent python from writing pyc files and buffering stdout
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DATA_DIR=/app/data \
@@ -12,29 +11,28 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install system dependencies & CA certificates
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
+        ca-certificates \
+        curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install python dependencies
+# PyGObject only serves the desktop tray icon on Linux and needs a C toolchain
+# plus cairo to build; the server never shows a tray, so it is left out.
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt truststore
+RUN grep -v '^PyGObject' requirements.txt > /tmp/requirements.txt \
+    && pip install --no-cache-dir -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
 
-# Copy application code
 COPY . .
+# The app rewrites lang/English.json on every start.
+RUN useradd --uid 1000 --create-home miner && mkdir -p /app/data && chown -R miner /app/data /app/lang
+USER miner
 
-# Expose Web Dashboard & API port
 EXPOSE 23432
-
-# Data volume for cookies.jar, settings.json, cache, logs
 VOLUME ["/app/data"]
 
-# Healthcheck
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://127.0.0.1:23432/api/status || exit 1
+# "/" is served without the API key, so the check passes when API_KEY is set.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS -o /dev/null http://127.0.0.1:23432/ || exit 1
 
-# Start headless miner daemon with API server
 CMD ["python", "main.py", "--host", "0.0.0.0", "--no-browser"]
