@@ -145,6 +145,18 @@ class TokenReconnectTests(DashboardTestCase):
         self.page.get_by_role("button", name="Save token & connect").click()
         expect(self.page.locator("#accountStatus")).to_have_text("Connected as second_viewer", timeout=5_000)
 
+    def test_unauthenticated_state_shows_connect_and_enables_inputs(self):
+        self.open_dashboard()
+        self.open_settings()
+        expect(self.page.locator("#btnDisconnect")).to_be_hidden()
+        expect(self.page.locator("#btnConnect")).to_be_visible()
+        expect(self.page.locator("#btnConnect")).to_be_enabled()
+        expect(self.page.locator("#tokenAuthentication")).to_be_visible()
+        expect(self.page.locator("#authTokenInput")).to_be_enabled()
+        expect(self.page.locator("#btnSaveToken")).to_be_enabled()
+        settings_toggle, shortcut = auto_claim_toggles(self.page)
+        expect(settings_toggle).to_be_enabled()
+
 
 def auto_claim_toggles(page):
     return page.locator("#settingsAutoClaimToggle"), page.locator("#autoClaimToggle")

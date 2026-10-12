@@ -1029,10 +1029,21 @@
           <h3 class="panel-title" id="accountHeading">Twitch account</h3>
           <p id="accountStatus" role="status" style="margin: 8px 0; color: var(--text-muted);">Checking account...</p>
           <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-            <button class="btn btn-primary" id="btnConnect" onclick="connectAccount()" disabled>Connect with Twitch</button>
-            <button class="btn" id="btnDisconnect" onclick="confirmDisconnect(true)" disabled>Disconnect</button>
+            <button class="btn btn-primary" id="btnConnect" onclick="connectAccount()">Connect with Twitch</button>
+            <button class="btn" id="btnDisconnect" onclick="confirmDisconnect(true)" style="display: none;">Disconnect</button>
           </div>
-          <p class="form-help">Disconnect removes this app's saved Twitch login and stops mining. It does not log you out of your browser or revoke Twitch access.</p>
+          <p class="form-help" id="disconnectHelp" style="display: none;">Disconnect removes this app's saved Twitch login and stops mining. It does not log you out of your browser or revoke Twitch access.</p>
+          <div id="settingsActivationBox" class="activation-banner" style="display: none; margin-top: 12px;">
+            <div>
+              <strong>Device Activation:</strong> Visit
+              <a id="settingsActivationLink" href="https://www.twitch.tv/activate" target="_blank" style="color: var(--text); font-weight: 600; text-decoration: underline;">twitch.tv/activate</a>
+              and enter code: <span class="code-chip" id="settingsActivationCode"></span>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn" onclick="copyActivationCode()"><span id="btnSettingsCopyText">Copy Code</span></button>
+              <button class="btn btn-primary" onclick="openActivation()">Open Activation Page</button>
+            </div>
+          </div>
           <div id="disconnectConfirmation" style="display: none; margin-top: 12px;" role="group" aria-label="Confirm local account disconnect">
             <p style="margin-bottom: 8px;">Disconnect this Twitch account from the app?</p>
             <button class="btn btn-primary" id="btnConfirmDisconnect" onclick="disconnectAccount()">Disconnect account</button>
@@ -1052,9 +1063,9 @@
             </div>
             <div class="form-group">
               <label class="form-label" for="authTokenInput">Twitch auth token:</label>
-              <input type="password" class="form-input" id="authTokenInput" autocomplete="off" spellcheck="false" autocapitalize="none" placeholder="Paste your auth-token..." disabled>
+              <input type="password" class="form-input" id="authTokenInput" autocomplete="off" spellcheck="false" autocapitalize="none" placeholder="Paste your auth-token...">
             </div>
-            <button class="btn" id="btnSaveToken" onclick="submitAuthToken()" disabled>Save token & connect</button>
+            <button class="btn" id="btnSaveToken" onclick="submitAuthToken()">Save token & connect</button>
           </details>
         </section>
         <section aria-labelledby="rewardsHeading" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border);">
@@ -1166,7 +1177,7 @@
 
   <script>
     let ws = null;
-    let cachedState = {};
+    let cachedState = { auth_disconnected: false, is_logged_in: false };
     const urlParams = new URLSearchParams(window.location.search);
     const apiKey = urlParams.get('key') || '';
     let authPending = '';
@@ -1246,22 +1257,39 @@
       else if (busy) label = 'Updating Twitch account...';
       else if (cachedState.auth_disconnected) label = 'Disconnected. Connect explicitly to resume mining.';
       else if (connected) label = `Connected${cachedState.username ? ' as ' + cachedState.username : (cachedState.user_id ? ' — user ' + cachedState.user_id : '')}`;
-      else if (activation) label = 'Connecting — complete Twitch device activation using the code above.';
+      else if (activation) label = 'Waiting for activation — enter code at twitch.tv/activate.';
       else if (known) label = 'Not connected. Waiting for Twitch authentication.';
       document.getElementById('accountStatus').textContent = label;
       document.getElementById('statAuth').textContent = connected ? 'Connected' : (activation ? 'Activation Required' : 'Not Connected');
       document.getElementById('statAuth').style.color = connected ? 'var(--status-active)' : 'var(--status-idle)';
-      document.getElementById('btnConnect').disabled = !known || busy || connected || Boolean(activation);
-      document.getElementById('btnConnect').textContent = authPending === 'connect' ? 'Connecting...' : 'Connect with Twitch';
-      document.getElementById('btnDisconnect').disabled = !known || busy || cachedState.auth_disconnected;
-      // A connected account offers only Disconnect; sign-in options return once disconnected.
-      document.getElementById('btnConnect').hidden = connected;
-      document.getElementById('tokenAuthentication').hidden = connected;
-      document.getElementById('btnDisconnect').hidden = cachedState.auth_disconnected === true;
+
+      const btnConnect = document.getElementById('btnConnect');
+      const btnDisconnect = document.getElementById('btnDisconnect');
+      const disconnectHelp = document.getElementById('disconnectHelp');
+      const tokenAuth = document.getElementById('tokenAuthentication');
+      const activationBox = document.getElementById('settingsActivationBox');
+
+      btnConnect.disabled = busy || connected;
+      btnConnect.textContent = authPending === 'connect' ? 'Connecting...' : (activation ? 'Open Activation Page' : 'Connect with Twitch');
+      btnConnect.hidden = connected;
+      btnConnect.style.display = connected ? 'none' : '';
+
+      btnDisconnect.disabled = busy || !connected;
+      btnDisconnect.hidden = !connected;
+      btnDisconnect.style.display = connected ? '' : 'none';
+      if (disconnectHelp) disconnectHelp.style.display = connected ? '' : 'none';
+
+      tokenAuth.hidden = connected;
+      tokenAuth.style.display = connected ? 'none' : '';
+
+      if (activationBox) {
+        activationBox.style.display = (activation && !connected) ? 'flex' : 'none';
+      }
+
       document.getElementById('btnConfirmDisconnect').disabled = busy;
       document.getElementById('btnCancelDisconnect').disabled = busy;
-      document.getElementById('btnSaveToken').disabled = !known || busy;
-      document.getElementById('authTokenInput').disabled = !known || busy;
+      document.getElementById('btnSaveToken').disabled = busy;
+      document.getElementById('authTokenInput').disabled = busy;
       document.getElementById('btnSaveToken').textContent = authPending === 'token' ? 'Connecting...' : 'Save token & connect';
       if (cachedState.auth_disconnected) document.getElementById('disconnectConfirmation').style.display = 'none';
       updateControlButtons();
@@ -1329,6 +1357,10 @@
     }
 
     function connectAccount() {
+      if (!cachedState.auth_disconnected && !cachedState.is_logged_in && cachedState.device_code?.code) {
+        openActivation();
+        return;
+      }
       return changeAccount('connect');
     }
 
@@ -1863,11 +1895,19 @@
       if (data && data.code) {
         document.getElementById('activationCode').innerText = data.code;
         document.getElementById('activationLink').href = data.uri || 'https://www.twitch.tv/activate';
+        const settingsCode = document.getElementById('settingsActivationCode');
+        const settingsLink = document.getElementById('settingsActivationLink');
+        if (settingsCode) settingsCode.innerText = data.code;
+        if (settingsLink) settingsLink.href = data.uri || 'https://www.twitch.tv/activate';
         banner.classList.add('visible');
       } else {
         banner.classList.remove('visible');
         document.getElementById('activationCode').textContent = '';
         document.getElementById('activationLink').href = 'https://www.twitch.tv/activate';
+        const settingsCode = document.getElementById('settingsActivationCode');
+        const settingsLink = document.getElementById('settingsActivationLink');
+        if (settingsCode) settingsCode.textContent = '';
+        if (settingsLink) settingsLink.href = 'https://www.twitch.tv/activate';
       }
     }
     function copyActivationCode() {
@@ -1876,11 +1916,13 @@
       if (!code || code === 'ABCD-EFGH') return;
       const copySuccess = () => {
         showToast(`Copied code ${code} to clipboard`, 'success');
-        const textEl = document.getElementById('btnCopyText');
-        if (textEl) {
-          textEl.innerText = 'Copied!';
-          setTimeout(() => { textEl.innerText = 'Copy Code'; }, 2000);
-        }
+        ['btnCopyText', 'btnSettingsCopyText'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) {
+            el.innerText = 'Copied!';
+            setTimeout(() => { el.innerText = 'Copy Code'; }, 2000);
+          }
+        });
       };
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(code).then(copySuccess).catch(() => {
@@ -2062,28 +2104,35 @@
       const preferenceRevision = settingsRevision;
       const listRevision = priorityRevision;
       try {
-        const [settingsRes, gamesRes] = await Promise.all([
+        const [settingsRes, gamesRes] = await Promise.allSettled([
           apiFetch('/api/settings'),
           apiFetch('/api/games')
         ]);
-        const settingsData = await responseData(settingsRes);
-        const gamesData = await responseData(gamesRes);
-        if (preferenceRevision === settingsRevision) syncAutoClaim(settingsData.auto_claim);
-        if ((prioritiesPending && !force) || listRevision !== priorityRevision) return;
-
-        priorityList = settingsData.priority || [];
-        cachedAvailableGames = gamesData.available || [];
-        cachedCampaignCounts = gamesData.campaign_counts || cachedCampaignCounts || {};
-        document.getElementById('priorityMode').value = settingsData.priority_mode || 0;
-        syncAutoSelect(settingsData.auto_select_linked);
-        prioritiesLoaded = true;
-        syncMineOnly();
-        rememberArt(cachedAvailableGames);
-        const dropCount = dropGames().length;
-        document.getElementById('dropsGamesCount').textContent = dropCount ? `(${dropCount})` : '';
-        if (games.ready && !games.query && games.view === 'drops') showDropGames();
+        if (settingsRes.status === 'fulfilled' && settingsRes.value.ok) {
+          const settingsData = await settingsRes.value.json();
+          if (preferenceRevision === settingsRevision) syncAutoClaim(settingsData.auto_claim);
+          if (!prioritiesPending || force) {
+            if (listRevision === priorityRevision) {
+              priorityList = settingsData.priority || [];
+              document.getElementById('priorityMode').value = settingsData.priority_mode || 0;
+              syncAutoSelect(settingsData.auto_select_linked);
+              prioritiesLoaded = true;
+              syncMineOnly();
+            }
+          }
+        }
+        if (gamesRes.status === 'fulfilled' && gamesRes.value.ok) {
+          const gamesData = await gamesRes.value.json();
+          cachedAvailableGames = gamesData.available || [];
+          cachedCampaignCounts = gamesData.campaign_counts || cachedCampaignCounts || {};
+          rememberArt(cachedAvailableGames);
+          const dropCount = dropGames().length;
+          document.getElementById('dropsGamesCount').textContent = dropCount ? `(${dropCount})` : '';
+          if (games.ready && !games.query && games.view === 'drops') showDropGames();
+        }
         renderPriorityList();
         lookupMissingArt();
+
       } catch (err) {
         showToast('Failed to load settings: ' + err.message, 'error');
       }
