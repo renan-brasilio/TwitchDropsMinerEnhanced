@@ -235,6 +235,10 @@
       align-items: center;
     }
 
+    .cockpit-body.is-empty {
+      display: block;
+      padding: 4px 0;
+
     .drop-thumb {
       width: 72px;
       height: 72px;
@@ -840,7 +844,7 @@
           Streamer: <span class="meta-tag" id="currentStreamerText">None</span>
         </div>
       </div>
-      <div class="cockpit-body">
+      <div class="cockpit-body is-empty" id="cockpitBody">
         <div class="drop-thumb" id="dropThumbnail" style="display: none;">
           <svg width="24" height="24" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" fill="none"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
         </div>
@@ -851,9 +855,9 @@
             <span>Campaign: <span class="meta-tag" id="campaignText">None</span></span>
             <span id="streamerMeta">Stream: <span class="meta-tag" id="streamerText">Waiting</span></span>
           </div>
-          <div id="dropEmptyHint" style="font-size: 13px; color: var(--text-muted); margin-top: 6px; line-height: 1.4;">
-            To start, select one from Campaigns &amp; Rewards and click Resume, or enable “Automatically select linked games”.
-          </div>
+          <p id="dropEmptyHint" style="font-size: 13px; color: var(--text-muted); margin: 6px 0 0 0; line-height: 1.5;">
+            To start, select one from <a href="javascript:switchTab('campaigns')" style="color: var(--accent); text-decoration: underline;">Campaigns &amp; Rewards</a> and click <strong>Resume</strong>, or enable <a href="javascript:switchTab('campaigns')" style="color: var(--accent); text-decoration: underline;">“Automatically select linked games”</a>.
+          </p>
         </div>
         <div class="progress-stats" id="dropStats" style="display: none;">
           <div class="progress-percent" id="percentDisplay">0.0%</div>
@@ -1752,6 +1756,7 @@
       const dropProgressTrack = document.getElementById('dropProgressTrack');
       const dropEmptyHint = document.getElementById('dropEmptyHint');
       const channelIndicator = document.getElementById('channelIndicator');
+      const cockpitBody = document.getElementById('cockpitBody');
 
       if (!drop) {
         document.getElementById('dropTitle').innerText = 'No Active Campaign';
@@ -1763,6 +1768,7 @@
         if (dropProgressTrack) dropProgressTrack.style.display = 'none';
         if (channelIndicator) channelIndicator.style.display = 'none';
         if (dropEmptyHint) dropEmptyHint.style.display = 'block';
+        if (cockpitBody) cockpitBody.classList.add('is-empty');
         return;
       }
       if (dropThumbnail) dropThumbnail.style.display = '';
@@ -1771,6 +1777,7 @@
       if (dropProgressTrack) dropProgressTrack.style.display = '';
       if (channelIndicator) channelIndicator.style.display = '';
       if (dropEmptyHint) dropEmptyHint.style.display = 'none';
+      if (cockpitBody) cockpitBody.classList.remove('is-empty');
 
       document.getElementById('dropTitle').innerText = drop.name;
       document.getElementById('campaignText').innerText = drop.campaign_name || 'None';
