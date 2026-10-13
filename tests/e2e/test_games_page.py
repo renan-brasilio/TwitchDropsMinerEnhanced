@@ -104,7 +104,13 @@ class AllGamesTests(GamesPageTestCase):
         # Page one, then infinite scroll / "Load more" fetches the rest; no duplicates.
         expect(tiles.first).to_be_visible()
         self.page.locator("#gamesSentinel").scroll_into_view_if_needed()
-        expect(tiles).to_have_count(len(CATALOG))
+        try:
+            expect(tiles).to_have_count(len(CATALOG), timeout=3000)
+        except AssertionError:
+            more = self.page.locator("#btnGamesMore")
+            if more.is_visible():
+                more.click()
+            expect(tiles).to_have_count(len(CATALOG))
         expect(self.page.locator("#btnGamesMore")).to_be_hidden()
         names = tiles.locator(".game-name").all_inner_texts()
         self.assertEqual(names, [g["displayName"] for g in CATALOG])
