@@ -562,7 +562,7 @@ class WebSocketInitTests(ApiContractTestCase):
             init = message["data"]
             for key in ("state", "status_text", "is_logged_in", "user_id", "username",
                         "auth_disconnected", "auth_pending", "active_drop", "active_channel",
-                        "device_code", "channels_count", "campaigns_count", "websockets", "version"):
+                        "device_code", "channels_count", "campaigns_count", "claimable_count", "can_start_count", "websockets", "version"):
                 with self.subTest(key=key):
                     self.assertEqual(init[key], status[key])
             self.assertEqual(init["campaigns_count"], 2)

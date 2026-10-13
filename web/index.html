@@ -792,23 +792,22 @@
         <span class="status-dot"></span>
         <span id="statusLabel">Connecting</span>
       </div>
-      <button class="btn" onclick="controlAction('pause')">
+      <button class="btn" id="btnPause" onclick="controlAction('pause')" style="display: none;">
         <svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
         Pause
       </button>
-      <button class="btn" onclick="controlAction('resume')">
+      <button class="btn" id="btnResume" aria-label="Resume" onclick="controlAction('resume')" style="display: none;">
         <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        Resume
+        <span id="btnResumeText">Start</span>
       </button>
-      <button class="btn" onclick="controlAction('reload')">
+      <button class="btn" id="btnReload" onclick="controlAction('reload')">
         <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
         Reload
       </button>
-      <button class="btn btn-primary" onclick="claimDrops()">
+      <button class="btn btn-primary" id="btnClaim" aria-label="Claim Drops" onclick="claimDrops()" style="display: none;">
         <svg viewBox="0 0 24 24"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/></svg>
-        Claim Drops
+        <span id="btnClaimText">Claim Drops</span>
       </button>
-    </div>
   </header>
 
   <!-- Activation Notice -->
@@ -837,28 +836,31 @@
         <div class="cockpit-title-group">
           <span class="cockpit-kicker">Active Target</span>
         </div>
-        <div id="channelIndicator" style="font-size: 13px; color: var(--text-muted);">
+        <div id="channelIndicator" style="display: none; font-size: 13px; color: var(--text-muted);">
           Streamer: <span class="meta-tag" id="currentStreamerText">None</span>
         </div>
       </div>
       <div class="cockpit-body">
-        <div class="drop-thumb" id="dropThumbnail">
+        <div class="drop-thumb" id="dropThumbnail" style="display: none;">
           <svg width="24" height="24" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" fill="none"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
         </div>
         <div>
           <div class="drop-title" id="dropTitle">No Active Campaign</div>
-          <div class="drop-meta">
+          <div class="drop-meta" id="dropMeta" style="display: none;">
             <span id="gameLabel">Game: <span class="meta-tag" id="gameText">Idle</span></span>
             <span>Campaign: <span class="meta-tag" id="campaignText">None</span></span>
             <span id="streamerMeta">Stream: <span class="meta-tag" id="streamerText">Waiting</span></span>
           </div>
+          <div id="dropEmptyHint" style="font-size: 13px; color: var(--text-muted); margin-top: 6px; line-height: 1.4;">
+            To start, select one from Campaigns &amp; Rewards and click Resume, or enable “Automatically select linked games”.
+          </div>
         </div>
-        <div class="progress-stats">
+        <div class="progress-stats" id="dropStats" style="display: none;">
           <div class="progress-percent" id="percentDisplay">0.0%</div>
           <div class="progress-time" id="minutesDisplay">0 / 0 min (0m remaining)</div>
         </div>
       </div>
-      <div class="progress-track">
+      <div class="progress-track" id="dropProgressTrack" style="display: none;">
         <div class="progress-fill" id="progressFill"></div>
       </div>
     </div>
@@ -1303,6 +1305,57 @@
       document.querySelectorAll('button[onclick^="watchChannel"]').forEach(btn => {
         btn.disabled = blocked || btn.dataset.online !== 'true';
       });
+
+      const btnPause = document.getElementById('btnPause');
+      const btnResume = document.getElementById('btnResume');
+      const btnResumeText = document.getElementById('btnResumeText');
+      const btnClaim = document.getElementById('btnClaim');
+      const btnClaimText = document.getElementById('btnClaimText');
+
+      const hasActiveDrop = Boolean(cachedState.active_drop && cachedState.active_drop.name);
+      const canStartCount = cachedState.can_start_count ?? (cachedState.inventory || []).filter(c => !c.ignored && !c.finished && (c.can_start || c.active || c.upcoming)).length;
+      const hasAvailableCampaign = canStartCount > 0 || (cachedState.campaigns_count > 0);
+
+      // Pause button: only when there's an active campaign
+      if (btnPause) {
+        btnPause.style.display = hasActiveDrop ? '' : 'none';
+      }
+
+      // Resume / Start button: only when not actively mining and at least one available campaign exists
+      if (btnResume) {
+        if (!hasActiveDrop && hasAvailableCampaign) {
+          btnResume.style.display = '';
+          const isPaused = (cachedState.status_text || '').toLowerCase().includes('pause');
+          if (btnResumeText) {
+            btnResumeText.textContent = isPaused ? 'Resume' : 'Start';
+          }
+        } else {
+          btnResume.style.display = 'none';
+        }
+      }
+
+      // Claim drops button:
+      // If auto_claim is set: show "Automatically claiming" (disabled)
+      // Else: show "Claim Drops" only if there are pending drops to claim
+      if (btnClaim) {
+        const isAutoClaim = Boolean(savedAutoClaim ?? cachedState.settings?.auto_claim);
+        const pendingDropsCount = cachedState.claimable_count ?? (cachedState.inventory || []).reduce((acc, c) => acc + (c.drops || []).filter(d => d.can_claim && !d.is_claimed).length, 0);
+        const hasPendingDrops = pendingDropsCount > 0;
+
+        if (isAutoClaim) {
+          btnClaim.style.display = '';
+          btnClaim.disabled = true;
+          if (btnClaimText) btnClaimText.textContent = 'Automatically claiming';
+        } else {
+          if (btnClaimText) btnClaimText.textContent = 'Claim Drops';
+          if (hasPendingDrops) {
+            btnClaim.style.display = '';
+            btnClaim.disabled = blocked;
+          } else {
+            btnClaim.style.display = 'none';
+          }
+        }
+      }
     }
 
     function requireAccount() {
@@ -1371,6 +1424,7 @@
     function syncAutoClaim(enabled) {
       if (typeof enabled !== 'boolean') return;
       savedAutoClaim = enabled;
+      updateControlButtons();
       if (autoClaimPending) return;
       ['autoClaimToggle', 'settingsAutoClaimToggle'].forEach(id => {
         const toggle = document.getElementById(id);
@@ -1692,16 +1746,32 @@
     }
 
     function renderDrop(drop) {
+      const dropThumbnail = document.getElementById('dropThumbnail');
+      const dropMeta = document.getElementById('dropMeta');
+      const dropStats = document.getElementById('dropStats');
+      const dropProgressTrack = document.getElementById('dropProgressTrack');
+      const dropEmptyHint = document.getElementById('dropEmptyHint');
+      const channelIndicator = document.getElementById('channelIndicator');
+
       if (!drop) {
         document.getElementById('dropTitle').innerText = 'No Active Campaign';
         document.getElementById('gameText').innerText = 'Idle';
         document.getElementById('campaignText').innerText = 'None';
-        document.getElementById('dropThumbnail').replaceChildren();
-        document.getElementById('percentDisplay').innerText = '0.0%';
-        document.getElementById('minutesDisplay').innerText = '0 / 0 min (0m remaining)';
-        document.getElementById('progressFill').style.width = '0%';
+        if (dropThumbnail) { dropThumbnail.replaceChildren(); dropThumbnail.style.display = 'none'; }
+        if (dropMeta) dropMeta.style.display = 'none';
+        if (dropStats) dropStats.style.display = 'none';
+        if (dropProgressTrack) dropProgressTrack.style.display = 'none';
+        if (channelIndicator) channelIndicator.style.display = 'none';
+        if (dropEmptyHint) dropEmptyHint.style.display = 'block';
         return;
       }
+      if (dropThumbnail) dropThumbnail.style.display = '';
+      if (dropMeta) dropMeta.style.display = '';
+      if (dropStats) dropStats.style.display = '';
+      if (dropProgressTrack) dropProgressTrack.style.display = '';
+      if (channelIndicator) channelIndicator.style.display = '';
+      if (dropEmptyHint) dropEmptyHint.style.display = 'none';
+
       document.getElementById('dropTitle').innerText = drop.name;
       document.getElementById('campaignText').innerText = drop.campaign_name || 'None';
       const gameText = document.getElementById('gameText');
@@ -1714,12 +1784,11 @@
       document.getElementById('minutesDisplay').innerText = `${drop.current_minutes} / ${drop.required_minutes} min (${drop.remaining_minutes}m remaining)`;
       document.getElementById('progressFill').style.width = drop.percentage + '%';
       if (drop.image_url) {
-        document.getElementById('dropThumbnail').innerHTML = `<img src="${drop.image_url}" alt="Reward" style="width: 100%; height: 100%; object-fit: cover;">`;
+        dropThumbnail.innerHTML = `<img src="${drop.image_url}" alt="Reward" style="width: 100%; height: 100%; object-fit: cover;">`;
       } else if (drop.game_box_art) {
-        document.getElementById('dropThumbnail').innerHTML = `<img src="${drop.game_box_art}" alt="Game" style="width: 100%; height: 100%; object-fit: cover;">`;
+        dropThumbnail.innerHTML = `<img src="${drop.game_box_art}" alt="Game" style="width: 100%; height: 100%; object-fit: cover;">`;
       }
     }
-
     function renderStreamer(channel) {
       const currentStreamerText = document.getElementById('currentStreamerText');
       const streamerText = document.getElementById('streamerText');
@@ -1793,6 +1862,7 @@
     }
 
     function renderInventory(allCampaigns) {
+      cachedState.inventory = allCampaigns;
       const container = document.getElementById('campaignsList');
       // the started campaign leads; ignored ones move to their own list
       const campaigns = (allCampaigns || []).filter(c => !c.ignored).sort((a, b) => (b.focused === true) - (a.focused === true));

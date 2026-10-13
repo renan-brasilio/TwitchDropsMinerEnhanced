@@ -122,3 +122,39 @@ class DropsRefreshTests(DashboardTestCase):
 
         self.page.locator("#gamesViewAll").click()
         expect(refresh).to_be_hidden()
+
+
+class CockpitCardEmptyStateTests(DashboardTestCase):
+    harness_options = {"disconnected": True}
+
+    def test_empty_target_shows_clean_prompt_and_hides_idle_stats(self):
+        self.open_dashboard()
+        expect(self.page.locator("#dropTitle")).to_have_text("No Active Campaign")
+        expect(self.page.locator("#dropEmptyHint")).to_be_visible()
+        expect(self.page.locator("#dropEmptyHint")).to_contain_text("To start, select one from Campaigns & Rewards")
+        expect(self.page.locator("#dropThumbnail")).to_be_hidden()
+        expect(self.page.locator("#dropMeta")).to_be_hidden()
+        expect(self.page.locator("#dropStats")).to_be_hidden()
+        expect(self.page.locator("#dropProgressTrack")).to_be_hidden()
+        expect(self.page.locator("#channelIndicator")).to_be_hidden()
+
+
+class HeaderActionButtonsTests(DashboardTestCase):
+    def test_active_mining_shows_pause_and_auto_claim_shows_automatically_claiming(self):
+        self.open_dashboard()
+        # With active campaign mining:
+        expect(self.page.locator("#btnPause")).to_be_visible()
+        expect(self.page.locator("#btnResume")).to_be_hidden()
+
+        # Auto-claim button reflects option:
+        claim_btn = self.page.locator("#btnClaim")
+        claim_text = self.page.locator("#btnClaimText")
+        # Default harness has auto_claim: False with no ready drops -> claim button is hidden
+        expect(claim_btn).to_be_hidden()
+
+        # Enable auto-claim in Settings tab:
+        self.open_settings()
+        self.page.locator("#settingsAutoClaimToggle").check()
+        expect(claim_btn).to_be_visible()
+        expect(claim_btn).to_be_disabled()
+        expect(claim_text).to_have_text("Automatically claiming")

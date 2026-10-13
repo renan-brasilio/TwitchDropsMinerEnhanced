@@ -579,6 +579,10 @@ class StateHub:
         self.broadcast_event("notification", {"title": title, "text": text})
 
     def get_full_status(self) -> dict[str, Any]:
+        inventory = self.get_inventory()
+        counted = [c for c in inventory if not c["ignored"]]
+        claimable_count = sum(1 for c in inventory for d in c.get("drops", []) if d.get("can_claim"))
+        can_start_count = sum(1 for c in counted if c.get("can_start"))
         return {
             "state": self.state_enum.name,
             "status_text": self.status_text,
@@ -593,7 +597,9 @@ class StateHub:
             "device_code": self.device_code_data,
             "auth_error": self.auth_error,
             "channels_count": len(self.channels_map),
-            "campaigns_count": len(self.counted_inventory()),
+            "campaigns_count": len(counted),
+            "claimable_count": claimable_count,
+            "can_start_count": can_start_count,
             "websockets": list(self.websockets_status.values()),
             "version": __version__,  # shown in Settings → About; the Mac app may differ
         }
