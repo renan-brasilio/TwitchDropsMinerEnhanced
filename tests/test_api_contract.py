@@ -100,6 +100,7 @@ class ApiContractTestCase(unittest.IsolatedAsyncioTestCase):
             patch("settings.SETTINGS_PATH", self.settings_path),
             patch("twitch.COOKIES_PATH", Path(self.temp.name, "cookies.jar")),
             patch.dict("os.environ", {"API_KEY": ""}),
+            patch("twitch.fetch_public_catalog", AsyncMock(return_value=[])),
             # Claims raise desktop notifications through osascript on macOS.
             patch("state_hub.subprocess.Popen"),
         ]

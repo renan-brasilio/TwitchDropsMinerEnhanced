@@ -8,7 +8,7 @@ import logging
 import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from constants import PriorityMode
 from exceptions import GQLException
@@ -118,7 +118,11 @@ class FakeTwitch:
 
 class CampaignDiscoveryTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.patches = [patch("inventory.datetime", Clock), patch("twitch.datetime", Clock)]
+        self.patches = [
+            patch("inventory.datetime", Clock),
+            patch("twitch.datetime", Clock),
+            patch("twitch.fetch_public_catalog", AsyncMock(return_value=[])),
+        ]
         for p in self.patches:
             p.start()
         self.settings = SimpleNamespace(
@@ -134,6 +138,8 @@ class CampaignDiscoveryTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         if self.twitch._mnt_task is not None:
             self.twitch._mnt_task.cancel()
+        if self.twitch._session is not None and not self.twitch._session.closed:
+            await self.twitch._session.close()
         self.twitch.gui.progress.stop_timer()
         logging.getLogger("TwitchDrops").removeHandler(self.twitch.gui._log_handler)
         for p in reversed(self.patches):
@@ -248,6 +254,45 @@ class CampaignDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(self.campaigns()), {"listed"})
         self.assertFalse(self.campaigns()["listed"].link_unknown)
         self.assertEqual([q for q in self.fake.queries if "DropStreams" in q], [])
+    async def test_public_catalog_populates_inventory_when_gql_campaigns_are_empty(self):
+        sample_campaign = {
+            "id": "feed-campaign-1",
+            "name": "Overwatch Season 13 Drops",
+            "game": {"id": "515025", "name": "Overwatch", "displayName": "Overwatch", "slug": "overwatch", "boxArtURL": ""},
+            "self": {"isAccountConnected": False},
+            "linkUnknown": True,
+            "accountLinkURL": "https://battle.net",
+            "detailsURL": "",
+            "startAt": "2026-10-10T00:00:00Z",
+            "endAt": "2026-10-30T00:00:00Z",
+            "status": "ACTIVE",
+            "allow": {"isEnabled": False, "channels": None},
+            "timeBasedDrops": [
+                {
+                    "id": "drop-1",
+                    "name": "Kiriko Skin",
+                    "startAt": "2026-10-10T00:00:00Z",
+                    "endAt": "2026-10-30T00:00:00Z",
+                    "requiredMinutesWatched": 120,
+                    "preconditionDrops": None,
+                    "benefitEdges": [{"benefit": {"id": "b-1", "name": "Kiriko Skin", "distributionType": "DIRECT_ENTITLEMENT", "imageAssetURL": ""}}]
+                }
+            ]
+        }
+        self.settings.priority = ["Overwatch"]
+        with patch("twitch.fetch_public_catalog", AsyncMock(return_value=[sample_campaign])):
+            await self.twitch.fetch_inventory()
+
+        camps = self.campaigns()
+        self.assertIn("feed-campaign-1", camps)
+        c = camps["feed-campaign-1"]
+        self.assertEqual(c.name, "Overwatch Season 13 Drops")
+        self.assertEqual(c.game.name, "Overwatch")
+        self.assertTrue(c.active)
+        self.assertTrue(c.eligible)
+        self.assertEqual(len(list(c.drops)), 1)
+        self.assertFalse(any("DropStreams" in q for q in self.fake.queries))
+
 
 
 if __name__ == "__main__":

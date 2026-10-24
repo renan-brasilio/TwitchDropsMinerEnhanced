@@ -467,7 +467,10 @@ class APIServer:
             for drop in campaign.drops:
                 if not drop.is_claimed:
                     if getattr(drop, "claim_id", None) is None and drop.current_minutes >= drop.required_minutes:
-                        await drop.generate_claim()
+                        try:
+                            await drop.generate_claim()
+                        except Exception as e:
+                            logger.debug(f"Could not generate claim ID for drop {drop.id}: {e}")
                     if drop.can_claim:
                         success = await drop.claim()
                         if success:

@@ -21,6 +21,7 @@ from state_hub import StateHub
 from channel import Channel
 from websocket import WebsocketPool
 from inventory import DropsCampaign
+from public_catalog import fetch_public_catalog
 from exceptions import (
     ExitRequest,
     GQLException,
@@ -483,11 +484,11 @@ class Twitch:
             cookie_jar.clear()
         # create timeouts
         # connection quality mulitiplier determines the magnitude of timeouts
-        connection_quality = self.settings.connection_quality
+        connection_quality = getattr(self.settings, "connection_quality", 1)
         if connection_quality < 1:
-            connection_quality = self.settings.connection_quality = 1
+            connection_quality = 1
         elif connection_quality > 6:
-            connection_quality = self.settings.connection_quality = 6
+            connection_quality = 6
         timeout = aiohttp.ClientTimeout(
             sock_connect=5*connection_quality,
             total=10*connection_quality,
@@ -1528,16 +1529,22 @@ class Twitch:
             if c["status"] in applicable_statuses  # that are currently not expired
         }
         if not available_campaigns:
-            # Twitch no longer lists campaigns for this login; find them through live streams.
             status_update(_("gui", "status", "fetching_campaigns"))
-            discovered = await self.discover_campaigns()
-            logger.info(
-                f"Twitch returned no campaign list for this login; found {len(discovered)} "
-                "campaigns on live Drops Enabled streams"
-            )
-            for campaign_id, campaign_data in discovered.items():
-                # in-progress inventory data is complete and account-specific, so it wins
-                inventory_data.setdefault(campaign_id, campaign_data)
+            # 1. Try public community catalog feed first (contains all active/upcoming campaigns across Twitch)
+            public_camps = await fetch_public_catalog(await self.get_session(), getattr(self.settings, "proxy", None))
+            if public_camps:
+                logger.info(f"Loaded {len(public_camps)} campaigns from public drops catalog")
+                for c in public_camps:
+                    inventory_data.setdefault(c["id"], c)
+            else:
+                # 2. Fall back to live Drops Enabled streams discovery if feed is unavailable
+                discovered = await self.discover_campaigns()
+                logger.info(
+                    f"Twitch returned no campaign list for this login; found {len(discovered)} "
+                    "campaigns on live Drops Enabled streams"
+                )
+                for campaign_id, campaign_data in discovered.items():
+                    inventory_data.setdefault(campaign_id, campaign_data)
         # fetch detailed data for each campaign, in chunks
         status_update(_("gui", "status", "fetching_campaigns"))
         fetch_campaigns_tasks: list[asyncio.Task[Any]] = [
