@@ -93,6 +93,7 @@ class APIServer:
         self._app.router.add_post("/api/inventory/refresh", self._post_inventory_refresh)
         self._app.router.add_post("/api/campaigns/ignore", self._post_campaign_ignore)
         self._app.router.add_post("/api/campaigns/focus", self._post_campaign_focus)
+        self._app.router.add_post("/api/campaigns/archive", self._post_campaign_archive)
         self._app.router.add_get("/api/games", self._get_games)
         self._app.router.add_get("/api/games/catalog", self._get_games_catalog)
         self._app.router.add_get("/api/games/lookup", self._get_games_lookup)
@@ -182,6 +183,38 @@ class APIServer:
         settings.ignored_campaigns = ignored
         self._publish_campaign_choice()
         return self._json_response({"status": "success", "ignored": sorted(ignored)})
+
+    async def _post_campaign_archive(self, request: web.Request) -> web.Response:
+        """
+        Prune ignored campaigns that have expired or finished from settings.ignored_campaigns.
+        Keeps active/upcoming ignored campaigns untouched.
+        """
+        settings = self._twitch.settings
+        ignored = set(settings.ignored_campaigns)
+        if not ignored:
+            return self._json_response({"status": "success", "archived_count": 0, "ignored": []})
+
+        # Identify past campaigns (expired or finished)
+        past_ids = set()
+        for cid in ignored:
+            campaign = self._twitch._campaigns.get(cid) or next((c for c in self._twitch.inventory if c.id == cid), None)
+            if campaign is not None:
+                if campaign.expired or campaign.finished:
+                    past_ids.add(cid)
+            else:
+                past_ids.add(cid)
+
+        if past_ids:
+            ignored.difference_update(past_ids)
+            settings.ignored_campaigns = ignored
+            self._publish_campaign_choice()
+
+        return self._json_response({
+            "status": "success",
+            "archived_count": len(past_ids),
+            "ignored": sorted(ignored),
+            "message": f"Archived {len(past_ids)} past ignored campaign(s)"
+        })
 
     async def _post_campaign_focus(self, request: web.Request) -> web.Response:
         try:

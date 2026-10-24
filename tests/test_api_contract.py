@@ -677,6 +677,25 @@ class CampaignChoiceEndpointTests(ApiContractTestCase):
                 self.assertEqual((await self.post("/api/campaigns/ignore", body))[0], 400)
         self.assertEqual(self.twitch.settings.ignored_campaigns, set())
 
+    async def test_archive_past_ignored_campaigns(self):
+        # Active campaign
+        self.add_campaign("active-camp", end=NOW + timedelta(days=1))
+        # Expired campaign
+        self.add_campaign("expired-camp", start=NOW - timedelta(days=3), end=NOW - timedelta(days=1))
+
+        # Ignore both
+        await self.post("/api/campaigns/ignore", {"campaign_id": "active-camp", "ignored": True})
+        await self.post("/api/campaigns/ignore", {"campaign_id": "expired-camp", "ignored": True})
+        # Also add a ghost campaign ID that no longer exists in inventory
+        self.twitch.settings.ignored_campaigns.add("non-existent-camp")
+
+        # Call archive
+        status, body = await self.post("/api/campaigns/archive", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["archived_count"], 2)  # expired-camp and non-existent-camp
+        self.assertEqual(body["ignored"], ["active-camp"])  # active-camp is retained
+        self.assertEqual(self.twitch.settings.ignored_campaigns, {"active-camp"})
+
 
 class GameCatalogEndpointTests(ApiContractTestCase):
     """/api/games/catalog and /api/games/lookup: Twitch's full game list for the Games page."""

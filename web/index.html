@@ -858,6 +858,13 @@
           <p id="dropEmptyHint" style="font-size: 13px; color: var(--text-muted); margin: 6px 0 0 0; line-height: 1.5;">
             To start, select one from <a href="javascript:switchTab('campaigns')" style="color: var(--accent); text-decoration: underline;">Campaigns &amp; Rewards</a> and click <strong>Resume</strong>, or enable <a href="javascript:switchTab('campaigns')" style="color: var(--accent); text-decoration: underline;">“Automatically select linked games”</a>.
           </p>
+          <div id="noStreamerNotice" style="display: none; margin-top: 8px; padding: 8px 12px; background: rgba(234, 179, 8, 0.1); border: 1px solid rgba(234, 179, 8, 0.3); border-radius: var(--radius-sm); font-size: 12px; color: var(--status-idle);">
+            <span>⚠️ <strong>No live streamers with drops online right now.</strong> The miner is waiting for a stream to start.</span>
+            <div style="margin-top: 6px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <button type="button" class="btn" style="padding: 2px 8px; font-size: 11px;" onclick="deferActiveCampaign()" title="Put this campaign on hold and look for other available campaigns">Mine another game for now</button>
+              <a href="javascript:filterToAutoStart()" style="color: var(--accent); text-decoration: underline; font-size: 11px;">Review campaigns that can be started</a>
+            </div>
+          </div>
         </div>
         <div class="progress-stats" id="dropStats" style="display: none;">
           <div class="progress-percent" id="percentDisplay">0.0%</div>
@@ -972,7 +979,10 @@
         </div>
         <details id="ignoredCampaigns" hidden style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
           <summary style="cursor: pointer; color: var(--text-muted); font-size: 13px;">Ignored campaigns (<span id="ignoredCount">0</span>)</summary>
-          <p class="form-help">Never mined. Rewards you already earned are still claimed.</p>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; flex-wrap: wrap; gap: 8px;">
+            <p class="form-help" style="margin: 0;">Never mined. Rewards you already earned are still claimed.</p>
+            <button type="button" class="btn" id="btnArchiveIgnored" style="padding: 3px 10px; font-size: 11px;" onclick="archivePastIgnored()" title="Remove expired and completed campaigns from the ignored list">Archive past campaigns</button>
+          </div>
           <ul id="ignoredList" class="ignored-list"></ul>
         </details>
       </div>
@@ -1202,6 +1212,25 @@
     let priorityRevision = 0;
     let nativePreferences = null;
     const nativePending = {};
+    let priorityList = [];
+    let cachedAvailableGames = [];
+    let cachedCampaignCounts = {};
+    const gameArt = new Map();
+    const lookedUpArt = new Set();
+    const unknownGames = new Set();
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    }
+
+    function gameKey(name) {
+      return String(name).toLocaleLowerCase();
+    }
+
+    function priorityIndex(name) {
+      const key = gameKey(name);
+      return priorityList.findIndex(entry => gameKey(entry) === key);
+    }
     let connectionRendered = false;
     let shownAuthError = null;
 
@@ -1768,6 +1797,8 @@
         if (dropProgressTrack) dropProgressTrack.style.display = 'none';
         if (channelIndicator) channelIndicator.style.display = 'none';
         if (dropEmptyHint) dropEmptyHint.style.display = 'block';
+        const notice = document.getElementById('noStreamerNotice');
+        if (notice) notice.style.display = 'none';
         if (cockpitBody) cockpitBody.classList.add('is-empty');
         return;
       }
@@ -1799,19 +1830,33 @@
     function renderStreamer(channel) {
       const currentStreamerText = document.getElementById('currentStreamerText');
       const streamerText = document.getElementById('streamerText');
+      const hasActiveDrop = Boolean(cachedState.active_drop && cachedState.active_drop.name);
+      const notice = document.getElementById('noStreamerNotice');
       if (!channel) {
-        currentStreamerText.innerText = 'None';
-        streamerText.innerText = 'Idle';
+        if (hasActiveDrop) {
+          currentStreamerText.innerHTML = '<span style="color: var(--status-idle);">No online streamers with drops</span>';
+          streamerText.innerHTML = '<span style="color: var(--status-idle);">No streamers online · Waiting for live channel</span>';
+          if (notice) notice.style.display = 'block';
+        } else {
+          currentStreamerText.innerText = 'None';
+          streamerText.innerText = 'Idle';
+          if (notice) notice.style.display = 'none';
+        }
       } else {
         currentStreamerText.innerHTML = `<a href="${channel.url}" target="_blank" style="color: #bf94ff; text-decoration: none;">${channel.name}</a> (${channel.viewers.toLocaleString()} viewers)`;
         streamerText.innerText = `${channel.name} (${channel.viewers.toLocaleString()} live)`;
+        if (notice) notice.style.display = 'none';
       }
     }
 
     function renderChannels(channels) {
       const tbody = document.getElementById('channelsBody');
       if (!channels || channels.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="color: var(--text-muted); text-align: center; padding: 24px;">No channels tracked yet</td></tr>';
+        const hasActive = Boolean(cachedState.active_drop && cachedState.active_drop.name);
+        const msg = hasActive
+          ? 'No live channels currently broadcasting with drops enabled for this game. Waiting for streamers to come online...'
+          : 'No channels tracked yet';
+        tbody.innerHTML = `<tr><td colspan="5" style="color: var(--text-muted); text-align: center; padding: 24px;">${msg}</td></tr>`;
         return;
       }
       tbody.innerHTML = channels.map(ch => `
@@ -1861,11 +1906,18 @@
       const section = document.getElementById('ignoredCampaigns');
       section.hidden = ignored.length === 0;
       document.getElementById('ignoredCount').textContent = ignored.length;
-      document.getElementById('ignoredList').innerHTML = ignored.map(c => `
+      const now = new Date();
+      document.getElementById('ignoredList').innerHTML = ignored.map(c => {
+        const isPast = c.ends_at && new Date(c.ends_at) <= now;
+        return `
         <li class="ignored-row">
-          <span><span class="campaign-game-tag">${escapeHtml(c.game)}</span> ${escapeHtml(c.name)}</span>
+          <span>
+            <span class="campaign-game-tag">${escapeHtml(c.game)}</span> ${escapeHtml(c.name)}
+            ${isPast ? '<span class="pill pill-offline" style="margin-left: 6px; font-size: 10px;">Past</span>' : ''}
+          </span>
           <button class="btn" style="padding: 2px 8px; font-size: 11px;" data-campaign="${escapeHtml(c.id)}" onclick="ignoreCampaign(this.dataset.campaign, false)">Restore</button>
-        </li>`).join('');
+        </li>`;
+      }).join('');
     }
 
     function renderInventory(allCampaigns) {
@@ -1896,7 +1948,9 @@
             </div>
             <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end;">
               ${campaignActions(c)}
-              <button class="btn" style="padding: 2px 8px; font-size: 11px;" data-game="${escapeHtml(c.game)}" onclick="addGameToPriority(this.dataset.game)">+ Prioritize</button>
+              ${priorityIndex(c.game) >= 0
+                ? `<button class="btn" style="padding: 2px 8px; font-size: 11px; color: var(--status-active); border-color: rgba(34,197,94,0.4);" data-game="${escapeHtml(c.game)}" onclick="toggleGame(this.dataset.game)" title="In your mining order. Click to remove.">✓ Prioritized</button>`
+                : `<button class="btn" style="padding: 2px 8px; font-size: 11px;" data-game="${escapeHtml(c.game)}" onclick="addGameToPriority(this.dataset.game)" title="Add this game to your mining order so its drops are automatically mined">+ Prioritize / Auto-drop</button>`}
               ${c.link_unknown
                 ? `<span class="pill pill-idle" title="Twitch no longer reports whether your account is linked for this campaign. It is mined only while ${escapeHtml(c.game)} is in your mining order on the Games page.">Link unknown</span>`
                 : (c.linked || !c.link_url
@@ -1948,6 +2002,47 @@
     function ignoreCampaign(campaignId, ignored) {
       return campaignChoice('/api/campaigns/ignore', { campaign_id: campaignId, ignored },
         ignored ? 'Campaign ignored' : 'Campaign restored');
+    }
+
+    async function archivePastIgnored() {
+      const btn = document.getElementById('btnArchiveIgnored');
+      if (btn) btn.disabled = true;
+      try {
+        const res = await apiFetch('/api/campaigns/archive', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        const data = await responseData(res);
+        showToast(data.message || 'Past ignored campaigns archived', 'success');
+        await pollFullState();
+      } catch (err) {
+        showToast('Failed to archive past campaigns: ' + err.message, 'error');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function deferActiveCampaign() {
+      // If focused, stop focus so the miner switches to next eligible campaign
+      if (cachedState.active_drop && cachedState.active_drop.campaign_id) {
+        const cid = cachedState.active_drop.campaign_id;
+        try {
+          await apiFetch('/api/control/switch', { method: 'POST' });
+          showToast('Looking for other live channels or campaigns...', 'info');
+          await pollFullState();
+        } catch (err) {
+          showToast('Could not switch campaign: ' + err.message, 'error');
+        }
+      }
+    }
+
+    function filterToAutoStart() {
+      switchTab('campaigns');
+      const input = document.getElementById('mineOnlySelectedToggle');
+      // Scroll to active campaigns list
+      const list = document.getElementById('campaignsList');
+      if (list) list.scrollIntoView({ behavior: 'smooth' });
     }
 
     function appendTerminalLog(entry) {
@@ -2133,35 +2228,14 @@
       }
     }
 
-    let priorityList = [];
-    let cachedAvailableGames = [];
-    let cachedCampaignCounts = {};
-    // Box art by case-insensitive game name, filled from every catalog / drops / lookup response.
-    const gameArt = new Map();
-    const lookedUpArt = new Set();
     // Priorities Twitch has no game for (e.g. renamed titles); they can never be mined.
-    const unknownGames = new Set();
     const games = { view: 'drops', query: '', items: [], next: null, loading: false, error: '', seq: 0, ready: false, timer: null };
     const viewerFormat = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
-
-    function escapeHtml(value) {
-      return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-    }
-
-    // Twitch display names are matched case-insensitively by the miner ("Valorant" == "VALORANT").
-    function gameKey(name) {
-      return String(name).toLocaleLowerCase();
-    }
 
     function rememberArt(list) {
       (list || []).forEach(game => {
         if (game && game.name && game.box_art) gameArt.set(gameKey(game.name), game.box_art);
       });
-    }
-
-    function priorityIndex(name) {
-      const key = gameKey(name);
-      return priorityList.findIndex(entry => gameKey(entry) === key);
     }
 
     function campaignCountFor(name) {
@@ -2476,6 +2550,30 @@
       if (games.ready) updateTypedGameButton();
     }
 
+    function refreshPrioritizeButtons() {
+      document.querySelectorAll('#campaignsList .campaign-item').forEach(card => {
+        const gameTag = card.querySelector('.campaign-game-tag');
+        if (!gameTag) return;
+        const gameName = gameTag.textContent.trim();
+        const btn = card.querySelector('button[data-game]');
+        if (!btn) return;
+        const isPrioritized = priorityIndex(gameName) >= 0;
+        if (isPrioritized) {
+          btn.textContent = '✓ Prioritized';
+          btn.style.color = 'var(--status-active)';
+          btn.style.borderColor = 'rgba(34,197,94,0.4)';
+          btn.title = 'In your mining order. Click to remove.';
+          btn.onclick = () => toggleGame(gameName);
+        } else {
+          btn.textContent = '+ Prioritize / Auto-drop';
+          btn.style.color = '';
+          btn.style.borderColor = '';
+          btn.title = 'Add this game to your mining order so its drops are automatically mined';
+          btn.onclick = () => addGameToPriority(gameName);
+        }
+      });
+    }
+
     function toggleGame(name) {
       const index = priorityIndex(name);
       if (index >= 0) removePriority(index);
@@ -2553,6 +2651,7 @@
       }));
       renderPrioritySummary();
       refreshTileStates();
+      refreshPrioritizeButtons();
     }
 
     function renderPrioritySummary() {

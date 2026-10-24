@@ -709,6 +709,7 @@ class Twitch:
                                 if drop.can_claim:
                                     await drop.claim()
                 self._prune_focus()
+                self._prune_ignored_past()
                 self._auto_select_linked_games()
                 # figure out which games we want
                 self.wanted_games.clear()
@@ -1784,6 +1785,19 @@ class Twitch:
         campaign = self._campaigns.get(focused)
         if campaign is None or campaign not in self.inventory or campaign.expired or campaign.finished:
             self.settings.focused_campaign = ""
+            self.settings.save(force=True)
+
+    def _prune_ignored_past(self) -> None:
+        """Prune ignored campaigns that have expired or finished so settings don't accumulate dead IDs."""
+        ignored = getattr(self.settings, "ignored_campaigns", None)
+        if not ignored:
+            return
+        past_ids = {
+            cid for cid in ignored
+            if (c := self._campaigns.get(cid)) is not None and (c.expired or c.finished)
+        }
+        if past_ids:
+            self.settings.ignored_campaigns = set(ignored) - past_ids
             self.settings.save(force=True)
 
     def _auto_select_linked_games(self) -> None:
