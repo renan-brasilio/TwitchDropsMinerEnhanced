@@ -46,9 +46,9 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.8.6</string>
+    <string>1.8.7</string>
     <key>CFBundleVersion</key>
-    <string>1.8.6</string>
+    <string>1.8.7</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIconName</key>
@@ -57,6 +57,8 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
+    <key>NSSupportsAutomaticTermination</key>
+    <false/>
 </dict>
 </plist>
 EOF

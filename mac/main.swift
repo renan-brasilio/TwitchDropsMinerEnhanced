@@ -78,7 +78,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     // State cache
     var status = MinerStatus()
     var hasLoadedDashboard: Bool = false
+    var isTerminatingExplicitly: Bool = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        ProcessInfo.processInfo.disableAutomaticTermination("Twitch Drops Miner menu bar extra stays active")
+
         // Set Dock Application Icon
         if let iconPath = Bundle.main.path(forResource: "AppIcon", ofType: "icns"),
            let iconImg = NSImage(contentsOfFile: iconPath) {
@@ -122,6 +126,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showMainWindow()
         return true
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return false
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if isTerminatingExplicitly || !keepRunningOnClose {
+            return .terminateNow
+        }
+        closeToMenuBar()
+        return .terminateCancel
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -729,6 +745,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
             swap.standardError = FileHandle.nullDevice
             do {
                 try swap.run()
+                isTerminatingExplicitly = true
                 NSApp.terminate(nil)
             } catch {
                 updateState = .failed("Couldn't start the installer: \(error.localizedDescription)")
@@ -817,6 +834,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, URLSessionWebSocketDelegate,
     }
 
     @objc func quitApp() {
+        isTerminatingExplicitly = true
         NSApplication.shared.terminate(nil)
     }
 }
