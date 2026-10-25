@@ -46,9 +46,9 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.8.11</string>
+    <string>1.8.12</string>
     <key>CFBundleVersion</key>
-    <string>1.8.11</string>
+    <string>1.8.12</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIconName</key>
@@ -62,6 +62,10 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
 </dict>
 </plist>
 EOF
+
+echo "==> Signing and verifying the complete application bundle..."
+codesign --force --sign - "$APP_BUNDLE"
+codesign --verify --deep --strict "$APP_BUNDLE"
 
 echo "==> Successfully created $APP_BUNDLE!"
 
