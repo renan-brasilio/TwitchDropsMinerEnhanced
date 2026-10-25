@@ -687,7 +687,9 @@ class Twitch:
                     self.gui.close()
                     continue
                 self.gui.tray.change_icon("idle")
-                self.gui.status.update(_("gui", "status", "idle"))
+                curr_text = self.gui.status_text
+                if not curr_text or curr_text == "Resuming mining...":
+                    self.gui.status.update(_("gui", "status", "idle"))
                 self.stop_watching()
                 # clear the flag and wait until it's set again
                 self._state_change.clear()
@@ -789,7 +791,9 @@ class Twitch:
                     self.change_state(State.CHANNELS_FETCH)
                 else:
                     # with no games available, we switch to IDLE after cleanup
-                    self.print(_("status", "no_campaign"))
+                    no_camp_msg = _("status", "no_campaign")
+                    self.print(no_camp_msg)
+                    self.gui.status.update(no_camp_msg)
                     self.change_state(State.IDLE)
             elif self._state is State.CHANNELS_FETCH:
                 self.gui.status.update(_("gui", "status", "gathering"))
@@ -940,7 +944,9 @@ class Twitch:
                     self._state_change.clear()
                 else:
                     # not watching anything and there isn't anything to watch either
-                    self.print(_("status", "no_channel"))
+                    no_chan_msg = _("status", "no_channel")
+                    self.print(no_chan_msg)
+                    self.gui.status.update(no_chan_msg)
                     self.change_state(State.IDLE)
                 del new_watching, selected_channel, watching_channel
             elif self._state is State.RESTART:

@@ -60,7 +60,7 @@ def _clean_reward(record: dict[str, Any], default_game_info: dict[str, Any]) -> 
             "id": game_id,
             "name": game_name,
             "displayName": game_name,
-            "slug": (game_name).lower().replace(" ", "-"),
+            "slug": str(raw_game.get("slug") or default_game_info.get("slug") or (game_name).lower().replace(" ", "-")),
             "boxArtURL": box_art,
         }
 

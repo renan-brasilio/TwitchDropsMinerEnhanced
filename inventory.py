@@ -13,7 +13,7 @@ from translate import _
 from channel import Channel
 from utils import timestamp, Game
 from exceptions import GQLException
-from constants import GQL_QUERIES, MAX_EXTRA_MINUTES, URLType, State
+from constants import GQL_QUERIES, MAX_EXTRA_MINUTES, URLType, State, PriorityMode
 
 if TYPE_CHECKING:
     from collections import abc
@@ -417,9 +417,13 @@ class DropsCampaign:
         if self.has_badge_or_emote:
             return self._twitch.settings.enable_badges_emotes
         if self.link_unknown:
-            # Choosing a game on the Games page asserts its account link; others aren't mined.
+            # Choosing a game on the Games page asserts its account link; others aren't mined
+            # unless priority mode allows all games (ENDING_SOONEST or LOW_AVBL_FIRST).
+            mode = getattr(self._twitch.settings, "priority_mode", PriorityMode.PRIORITY_ONLY)
+            if mode is not PriorityMode.PRIORITY_ONLY:
+                return True
             game = self.game.name.casefold()
-            return any(name.casefold() == game for name in self._twitch.settings.priority)
+            return any(name.casefold() == game for name in getattr(self._twitch.settings, "priority", []))
         return self.linked
 
     @cached_property
