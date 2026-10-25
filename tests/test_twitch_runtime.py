@@ -273,6 +273,34 @@ class WatchLoopTests(RuntimeTestCase):
         await self.run_until_watch(1)
         self.assertEqual(self.watched, [live.id])
 
+    async def test_pause_during_watch_request_does_not_restore_stale_progress(self):
+        channel = self.live_channel(1, ALPHA)
+        self.twitch.watch(channel)
+        blocked = asyncio.Event()
+        original_get = self.twitch.watching_channel.get
+
+        async def observe_waiting():
+            if not self.twitch.watching_channel.has_value():
+                blocked.set()
+            return await original_get()
+
+        async def pause_during_request():
+            self.twitch._paused = True
+            self.twitch.stop_watching()
+            self.fake_now += self.request_seconds
+            return True
+
+        self.gql_handlers["DropCurrentSessionContext"] = lambda v: {
+            "data": {"currentUser": {"dropCurrentSession": None}}}
+        self.twitch.watching_channel.get = observe_waiting
+        with patch.object(Channel, "send_watch", side_effect=pause_during_request), \
+                patch("twitch.asyncio.sleep", new_callable=AsyncMock):
+            self.twitch._watching_task = asyncio.create_task(self.twitch._watch_loop())
+            await asyncio.wait_for(blocked.wait(), 2)
+
+        self.assertIsNone(self.hub.active_drop)
+        self.assertEqual(self.alpha.timed_drops["alpha-drop"].current_minutes, 10)
+
     async def test_stalled_progress_is_resynced_from_twitchs_current_drop_session(self):
         channel = self.live_channel(1, ALPHA)
         drop = self.alpha.timed_drops["alpha-drop"]
@@ -327,22 +355,29 @@ class MaintenanceScheduleTests(RuntimeTestCase):
             await self.twitch._maintenance_task()
         return sleep.delays, states
 
-    async def test_campaign_boundaries_within_the_hour_request_cleanup_then_a_reload(self):
-        soon, later, next_hour = (NOW + timedelta(minutes=m) for m in (10, 30, 90))
-        self.twitch._mnt_triggers.extend([soon, later, next_hour])
+    async def test_campaign_boundary_is_not_delayed_by_periodic_discovery(self):
+        boundary, next_hour = (NOW + timedelta(minutes=m) for m in (7, 90))
+        self.twitch._mnt_triggers.extend([boundary, next_hour])
 
-        delays, states = await self.run_maintenance()
+        delays, _ = await self.run_maintenance()
 
-        self.assertEqual(delays, [600, 1200, 1800])
-        self.assertEqual(states, [State.IDLE, State.CHANNELS_CLEANUP, State.CHANNELS_CLEANUP])
+        self.assertEqual(delays[:3], [300, 120, 180])
+        self.assertEqual(sum(delays), 3600)
         self.assertIs(self.twitch._state, State.INVENTORY_FETCH)
-        self.assertEqual(list(self.twitch._mnt_triggers), [next_hour])  # kept for the next cycle
+        self.assertEqual(list(self.twitch._mnt_triggers), [next_hour])
 
-    async def test_without_boundaries_the_inventory_is_reloaded_after_an_hour(self):
+    async def test_waiting_queue_is_rediscovered_within_five_minutes(self):
         delays, states = await self.run_maintenance()
-        self.assertEqual(delays, [3600])
-        self.assertEqual(states, [State.IDLE])
+        self.assertEqual(delays[0], 300)
+        self.assertIs(states[1], State.CHANNELS_CLEANUP)
+        self.assertEqual(sum(delays), 3600)
         self.assertIs(self.twitch._state, State.INVENTORY_FETCH)
+
+    async def test_periodic_discovery_and_hourly_reload_respect_manual_pause(self):
+        self.twitch._paused = True
+        _, states = await self.run_maintenance()
+        self.assertEqual(set(states), {State.IDLE})
+        self.assertIs(self.twitch._state, State.IDLE)
 
 
 class StreamEventTests(RuntimeTestCase):

@@ -1920,6 +1920,25 @@
       }).join('');
     }
 
+    function campaignQueueStatus(campaign) {
+      const status = campaign.queue_status;
+      const labels = {
+        mining: 'Mining now', queued: 'Queued · live stream available',
+        waiting_for_stream: campaign.allowed_channels?.length
+          ? `Waiting for ${campaign.allowed_channels.join(', ')} to stream eligible drops`
+          : 'Waiting for an eligible live stream',
+        paused: 'Paused', upcoming: 'Waiting for campaign start',
+        not_selected: 'Not in mining queue', blocked: 'Waiting for drop requirements',
+        claimable: 'Ready to claim'
+      };
+      if (!labels[status]) return '';
+      const style = status === 'mining' || status === 'queued' ? 'pill-online' : 'pill-idle';
+      const title = status === 'waiting_for_stream'
+        ? 'Other runnable campaigns continue. Streams are rechecked every five minutes and on live events.'
+        : labels[status];
+      return `<span class="pill ${style}" title="${escapeHtml(title)}">${escapeHtml(labels[status])}</span>`;
+    }
+
     function renderInventory(allCampaigns) {
       cachedState.inventory = allCampaigns;
       const container = document.getElementById('campaignsList');
@@ -1948,14 +1967,15 @@
             </div>
             <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end;">
               ${campaignActions(c)}
+              ${campaignQueueStatus(c)}
               ${priorityIndex(c.game) >= 0
                 ? `<button class="btn" style="padding: 2px 8px; font-size: 11px; color: var(--status-active); border-color: rgba(34,197,94,0.4);" data-game="${escapeHtml(c.game)}" onclick="toggleGame(this.dataset.game)" title="In your mining order. Click to remove.">✓ Prioritized</button>`
                 : `<button class="btn" style="padding: 2px 8px; font-size: 11px;" data-game="${escapeHtml(c.game)}" onclick="addGameToPriority(this.dataset.game)" title="Add this game to your mining order so its drops are automatically mined">+ Prioritize / Auto-drop</button>`}
               ${c.link_unknown
-                ? `<span class="pill pill-idle" title="Twitch no longer reports whether your account is linked for this campaign. It is mined only while ${escapeHtml(c.game)} is in your mining order on the Games page.">Link unknown</span>`
+                ? `<span class="pill pill-idle" title="Twitch does not report the publisher link. Selected games can still earn watch time; link your account to receive rewards in-game.">Link unknown</span>`
                 : (c.linked || !c.link_url
                   ? `<span class="pill ${c.linked ? 'pill-online' : 'pill-offline'}">${c.linked ? 'Linked' : 'Unlinked'}</span>`
-                  : `<a class="pill pill-offline" href="${escapeHtml(c.link_url)}" target="_blank" rel="noopener noreferrer" title="Twitch says your ${escapeHtml(c.game)} account isn't linked, so this campaign isn't mined. Link it on the publisher's site.">Unlinked · Link account</a>`)}
+                  : `<a class="pill pill-offline" href="${escapeHtml(c.link_url)}" target="_blank" rel="noopener noreferrer" title="Watch time can still accumulate. Link your ${escapeHtml(c.game)} account on the publisher's site to receive the rewards in-game.">Link to receive rewards</a>`)}
             </div>
           </div>
           <div class="campaign-drops-list">

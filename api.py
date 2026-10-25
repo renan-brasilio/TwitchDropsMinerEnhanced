@@ -238,6 +238,7 @@ class APIServer:
             return self._json_response({"error": "This campaign hasn't started yet"}, status=409)
         if campaign.finished or campaign.remaining_minutes <= 0:
             return self._json_response({"error": "Nothing left to earn in this campaign"}, status=409)
+        self._twitch._paused = False
         settings.focused_campaign = campaign_id
         self._publish_campaign_choice()
         return self._json_response({"status": "success", "focused": campaign_id,
@@ -449,6 +450,7 @@ class APIServer:
         return self._json_response(list(self._hub.logs))
 
     async def _control_pause(self, request: web.Request) -> web.Response:
+        self._twitch._paused = True
         self._twitch.stop_watching()
         self._twitch.change_state(State.IDLE)
         self._hub.set_status_text("Paused by user")
@@ -456,6 +458,7 @@ class APIServer:
         return self._json_response({"status": "success", "state": "IDLE"})
 
     async def _control_resume(self, request: web.Request) -> web.Response:
+        self._twitch._paused = False
         self._hub.set_status_text("Resuming mining...")
         self._twitch.change_state(State.INVENTORY_FETCH)
         return self._json_response({"status": "success", "state": "INVENTORY_FETCH"})
@@ -466,6 +469,7 @@ class APIServer:
         return self._json_response({"status": "success", "state": "INVENTORY_FETCH"})
 
     async def _control_switch(self, request: web.Request) -> web.Response:
+        self._twitch._paused = False
         self._hub.set_status_text("Switching channel...")
         self._twitch.change_state(State.CHANNEL_SWITCH)
         return self._json_response({"status": "success", "state": "CHANNEL_SWITCH"})
@@ -482,6 +486,7 @@ class APIServer:
             return self._json_response({"error": "Channel is no longer tracked"}, status=404)
         if not self._twitch.can_watch(channel):
             return self._json_response({"error": "This channel cannot earn your active drops"}, status=409)
+        self._twitch._paused = False
         self._hub.channels.select(channel)
         self._twitch.watch(channel)
         self._twitch.restart_watching()

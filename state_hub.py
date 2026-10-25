@@ -515,6 +515,7 @@ class StateHub:
 
     def get_inventory(self) -> list[dict[str, Any]]:
         visible = []
+        active_campaign = self._twitch.get_active_campaign()
         for campaign_id, data in self.campaigns_map.items():
             campaign = self._inventory_campaigns[campaign_id]
             ongoing = campaign.active or campaign.upcoming
@@ -524,12 +525,36 @@ class StateHub:
             }
             if not claimable and (not ongoing or campaign.finished):
                 continue
+            if campaign.ignored:
+                queue_status = "ignored"
+            elif campaign.upcoming:
+                queue_status = "upcoming"
+            elif not campaign.active or campaign.finished:
+                queue_status = "claimable"
+            elif self._twitch._paused:
+                queue_status = "paused"
+            elif campaign.game not in self._twitch.wanted_games:
+                queue_status = "not_selected"
+            elif not campaign.can_earn():
+                queue_status = "blocked"
+            elif active_campaign is campaign:
+                queue_status = "mining"
+            elif any(
+                channel.online and campaign.can_earn(channel)
+                and (channel.drops_enabled or campaign.game.is_special())
+                for channel in self._twitch.channels.values()
+            ):
+                queue_status = "queued"
+            else:
+                queue_status = "waiting_for_stream"
             visible.append({
                 **data,
                 "active": campaign.active,
                 "upcoming": campaign.upcoming,
                 "ignored": campaign.ignored,
                 "focused": campaign.focused,
+                "queue_status": queue_status,
+                "allowed_channels": [channel.name for channel in campaign.allowed_channels],
                 # "Mine now" needs something left to earn right now
                 "can_start": campaign.active and not campaign.ignored and any(
                     not drop.is_claimed and drop.current_minutes < drop.required_minutes

@@ -409,6 +409,76 @@ class MiningLoopSelectionTests(SelectionTestCase):
 
         self.assertEqual(await self.select(), (["Alpha"], None))
 
+    async def test_offline_focus_waits_while_unlinked_selected_campaign_mines(self):
+        waiting = self.add_campaign(ALPHA, acl=[7])
+        runnable = self.add_campaign(BETA, linked=False, watched=20)
+        self.settings.focused_campaign = waiting.id
+        self.settings.priority_mode = PriorityMode.ENDING_SOONEST
+        self.acl_streams["acl7"] = stream_info(7, None)
+        self.live(BETA, (2, 10))
+
+        self.assertEqual(await self.select(), (["Alpha", "Beta"], 2))
+        self.assertEqual(self.settings.focused_campaign, waiting.id)
+        self.assertIn(7, self.twitch.channels)
+        self.assertIs(self.twitch.get_active_campaign(), runnable)
+        for campaign in (waiting, runnable):
+            self.twitch.gui.update_inventory_campaign(campaign)
+        statuses = {c["id"]: c["queue_status"] for c in self.twitch.gui.get_inventory()}
+        self.assertEqual(statuses, {waiting.id: "waiting_for_stream", runnable.id: "mining"})
+
+        # A periodic discovery must recheck a retained offline ACL channel.
+        self.acl_streams["acl7"] = stream_info(7, ALPHA)
+        self.twitch._state_change.blocked.clear()
+        self.twitch.change_state(State.CHANNELS_CLEANUP)
+        await asyncio.wait_for(self.twitch._state_change.blocked.wait(), 5)
+        self.assertEqual(self.twitch.watching_channel.get_with_default(None).id, 7)
+        self.assertIs(self.twitch.get_active_campaign(), waiting)
+        statuses = {c["id"]: c["queue_status"] for c in self.twitch.gui.get_inventory()}
+        self.assertEqual(statuses, {waiting.id: "mining", runnable.id: "queued"})
+
+        # Finishing the focused campaign resumes the remaining queue automatically.
+        next(iter(waiting.drops)).is_claimed = True
+        self.twitch._state_change.blocked.clear()
+        self.twitch.change_state(State.GAMES_UPDATE)
+        await asyncio.wait_for(self.twitch._state_change.blocked.wait(), 5)
+        self.assertEqual(self.settings.focused_campaign, "")
+        self.assertIs(self.twitch.get_active_campaign(), runnable)
+
+    async def test_empty_directory_is_rediscovered_without_losing_waiting_campaign(self):
+        self.add_campaign(ALPHA)
+        waiting = self.add_campaign(BETA, acl=[7])
+        self.acl_streams["acl7"] = stream_info(7, None)
+        self.assertEqual(await self.select(), (["Alpha", "Beta"], None))
+
+        self.live(ALPHA, (1, 10))
+        self.twitch._state_change.blocked.clear()
+        self.twitch.change_state(State.CHANNELS_CLEANUP)
+        await asyncio.wait_for(self.twitch._state_change.blocked.wait(), 5)
+        self.assertEqual(self.twitch.watching_channel.get_with_default(None).id, 1)
+        self.assertIn(7, self.twitch.channels)
+        self.assertIn(waiting.game, self.twitch.wanted_games)
+
+    async def test_stream_coming_online_does_not_restart_a_paused_queue(self):
+        waiting = self.add_campaign(ALPHA, acl=[7])
+        self.acl_streams["acl7"] = stream_info(7, None)
+        self.assertEqual(await self.select(), (["Alpha"], None))
+        self.twitch._paused = True
+
+        self.acl_streams["acl7"] = stream_info(7, ALPHA)
+        await self.twitch.channels[7].update_stream()
+        self.assertFalse(self.twitch.watching_channel.has_value())
+
+        self.twitch._state_change.blocked.clear()
+        self.twitch.change_state(State.CHANNELS_CLEANUP)
+        await asyncio.wait_for(self.twitch._state_change.blocked.wait(), 5)
+        self.assertFalse(self.twitch.watching_channel.has_value())
+
+        self.twitch._paused = False
+        self.twitch._state_change.blocked.clear()
+        self.twitch.change_state(State.GAMES_UPDATE)
+        await asyncio.wait_for(self.twitch._state_change.blocked.wait(), 5)
+        self.assertIs(self.twitch.get_active_campaign(), waiting)
+
 
 class AutoSelectLinkedTests(SelectionTestCase):
     async def asyncSetUp(self):

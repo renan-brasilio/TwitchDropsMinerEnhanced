@@ -416,9 +416,9 @@ class DropsCampaign:
             return True
         if self.has_badge_or_emote:
             return self._twitch.settings.enable_badges_emotes
-        if self.link_unknown:
-            # Choosing a game on the Games page asserts its account link; others aren't mined
-            # unless priority mode allows all games (ENDING_SOONEST or LOW_AVBL_FIRST).
+        if self.link_unknown or not self.linked:
+            # Publisher linking is required for delivery, not watch-time accrual.
+            # Only mine these campaigns when selected or when the mode allows all games.
             mode = getattr(self._twitch.settings, "priority_mode", PriorityMode.PRIORITY_ONLY)
             if mode is not PriorityMode.PRIORITY_ONLY:
                 return True

@@ -49,16 +49,18 @@
   - A saved game that no longer matches any Twitch game (for example after a rename) is marked **Not found on Twitch**, since it can never be mined.
   - Game names match Twitch case-insensitively, so a saved `Valorant` mines Twitch's `VALORANT`.
   - Browsing and search need a connected Twitch account. The `+ Prioritize` button on every campaign card still adds that game in one click.
-- **Campaign discovery (Twitch-only)**:
-  - Since October 2026 Twitch no longer gives the drop-campaign list to the device-code login this app uses. The miner finds campaigns on Twitch itself instead. It checks live **Drops Enabled** streams for every game in your mining order, plus the most-watched Drops Enabled streams across Twitch, and asks those channels which campaigns they offer.
-  - Campaigns found this way show **Link unknown**, because Twitch no longer says whether your account is linked to the publisher. They are mined only while their game is in your mining order on the Games page. Choosing a game means you've linked its account. Other discovered campaigns are listed but not mined.
-  - Campaigns already in progress keep Twitch's full, account-specific data, including link status and progress.
-  - Only campaigns with someone streaming them right now are found, and those are the only ones that can be mined. Adding a game to your mining order refreshes campaigns right away.
+- **Campaign discovery**:
+  - When Twitch's account-bound campaign list is unavailable, the miner loads active and upcoming campaigns from the public community catalog. Live Drops Enabled stream discovery is the fallback if that feed is unavailable.
+  - Campaigns already in progress keep Twitch's account-specific progress and link status. Catalog-only campaigns show **Link unknown**.
+  - Publisher linking affects delivery of rewards into the game, not watch-time accrual. Selected games can earn before linking; **Link to receive rewards** opens the publisher's connection page. The auto-select-linked preference still adds only confirmed linked games.
+  - Adding a game to your mining order refreshes campaigns immediately.
 - **Campaign schedule and reward claiming**:
   - Each campaign shows its start and end dates in your local timezone, plus time remaining.
   - **Mine only selected games** (top of the tab) mines only the games in your mining order. Turned off, those games go first and campaigns of other games follow. It is the same setting as **Priority mode** on the Games page ("Priority Games Only"), so both stay in sync.
   - **Automatically select linked games** adds the game of every campaign Twitch reports as linked to your account to the end of your mining order. Each campaign is handled once: a game you remove stays removed until it gets a new campaign, and excluded games and ignored campaigns are skipped. Off by default.
   - **Mine now** on a campaign switches to a channel for it and mines it before anything else, even if its game isn't in your mining order or its link status is unknown. The card shows **Mining first**; **Stop** returns to your normal order. The choice clears itself when the campaign is finished or over, and survives restarts.
+  - An offline campaign, including a **Mine now** choice, waits without blocking other runnable campaigns. Its allowed channels remain monitored. The miner checks queued games and retained offline channels every five minutes, in addition to live events, and returns to a higher-priority campaign when an eligible stream becomes available.
+  - Campaign cards distinguish **Mining now**, **Queued · live stream available**, and **Waiting for [broadcaster]**. Manual **Pause** stops the queue and background discovery cannot resume it; **Resume**, **Mine now**, or **Watch** starts mining explicitly.
   - **Ignore** hides a campaign and the miner never works on it; rewards you already earned are still claimed. Ignored campaigns move to **Ignored campaigns** at the bottom of the tab, where **Restore** brings them back. They don't count in totals or in **Games → With drops**.
   - **Games → With drops** has a **Refresh** button that checks Twitch again for live drop campaigns.
   - Fully claimed campaigns are hidden. Ended campaigns remain visible only while this account has an eligible, unclaimed reward within Twitch's claim window; only those claimable rewards are listed for ended campaigns.

@@ -334,6 +334,7 @@ class Twitch:
         # State management
         self._state: State = State.IDLE
         self._state_change = asyncio.Event()
+        self._paused = False
         self.wanted_games: list[Game] = []
         self.inventory: list[DropsCampaign] = []
         self._drops: dict[str, TimedDrop] = {}
@@ -555,6 +556,7 @@ class Twitch:
         self._auth_state.clear()
         self.wanted_games.clear()
         self._mnt_triggers.clear()
+        self._paused = False
         self.gui.clear_account()
         await asyncio.sleep(max(0, start_time + 0.5 - time()))
 
@@ -682,6 +684,11 @@ class Twitch:
         channels: Final[OrderedDict[int, Channel]] = self.channels
         self.change_state(State.INVENTORY_FETCH)
         while True:
+            if self._paused and self._state not in (
+                State.IDLE, State.INVENTORY_FETCH, State.RESTART, State.EXIT
+            ):
+                self.change_state(State.IDLE)
+                continue
             if self._state is State.IDLE:
                 if self.settings.dump:
                     self.gui.close()
@@ -816,11 +823,10 @@ class Twitch:
                             acl_channels.update(campaign.allowed_channels)
                         else:
                             no_acl.add(campaign.game)
-                # remove all ACL channels that already exist from the other set
-                acl_channels.difference_update(new_channels)
-                # use the other set to set them online if possible
+                # Recheck retained ACL channels too; a missed PubSub event must not
+                # leave an offline channel stale until the next inventory reload.
                 await self.bulk_check_online(acl_channels)
-                # finally, add them as new channels
+                new_channels.difference_update(acl_channels)
                 new_channels.update(acl_channels)
                 for game in no_acl:
                     # for every campaign without an ACL, for it's game,
@@ -980,6 +986,8 @@ class Twitch:
                 logger.log(CALL, f"Watch requested failed for channel: {channel.name}")
             # wait ~15 seconds for a progress update
             await asyncio.sleep(15 - min(time() - last_sent, 15))
+            if self._paused or self.watching_channel.get_with_default(None) != channel:
+                continue
             if self.gui.progress.minute_almost_done():
                 # If the previous update was more than ~60s ago, and the progress tracker
                 # isn't counting down anymore, that means Twitch has temporarily
@@ -1000,6 +1008,8 @@ class Twitch:
                     )
                 except GQLException:
                     drop_data = None
+                if self._paused or self.watching_channel.get_with_default(None) != channel:
+                    continue
                 if drop_data is not None:
                     gql_drop: TimedDrop | None = self._drops.get(drop_data["dropID"])
                     if gql_drop is not None and gql_drop.can_earn(channel):
@@ -1034,33 +1044,28 @@ class Twitch:
     async def _maintenance_task(self) -> None:
         now = datetime.now(timezone.utc)
         next_period = now + timedelta(hours=1)
+        refresh_interval = timedelta(minutes=5)
+        next_refresh = now + refresh_interval
         while True:
-            # exit if there's no need to repeat the loop
             now = datetime.now(timezone.utc)
             if now >= next_period:
                 break
-            next_trigger = next_period
+            next_trigger = min(next_period, next_refresh)
             while self._mnt_triggers and self._mnt_triggers[0] <= next_trigger:
                 next_trigger = self._mnt_triggers.popleft()
-            trigger_type: str = "Reload" if next_trigger == next_period else "Cleanup"
-            logger.log(
-                CALL,
-                (
-                    "Maintenance task waiting until: "
-                    f"{next_trigger.astimezone().strftime('%X')} ({trigger_type})"
-                )
-            )
+            logger.log(CALL, f"Maintenance waiting until: {next_trigger.astimezone():%X}")
             await asyncio.sleep((next_trigger - now).total_seconds())
-            # exit after waiting, before the actions
             now = datetime.now(timezone.utc)
             if now >= next_period:
                 break
-            if next_trigger != next_period:
-                logger.log(CALL, "Maintenance task requests channels cleanup")
+            if now >= next_refresh:
+                next_refresh = now + refresh_interval
+            if not self._paused and self._state in (State.IDLE, State.CHANNEL_SWITCH):
+                # Preserve the current stream and offline ACL subscriptions while
+                # discovering newly available channels for every queued game.
                 self.change_state(State.CHANNELS_CLEANUP)
-        # this triggers a restart of this task every (up to) 60 minutes
-        logger.log(CALL, "Maintenance task requests a reload")
-        self.change_state(State.INVENTORY_FETCH)
+        if not self._paused:
+            self.change_state(State.INVENTORY_FETCH)
 
     def can_watch(self, channel: Channel) -> bool:
         """
@@ -1088,6 +1093,8 @@ class Twitch:
         """
         Determines if the given channel qualifies as a switch candidate.
         """
+        if self._paused:
+            return False
         if not self.can_watch(channel):
             return False
         watching_channel = self.watching_channel.get_with_default(None)
