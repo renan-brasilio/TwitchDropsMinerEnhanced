@@ -42,6 +42,8 @@ class DropGamesViewTests(GamesPageTestCase):
         tile = self.tile(GAME_NAME)
         expect(tile).to_have_count(1)
         expect(tile.locator(".drops-tag")).to_have_text("Drops · 1 campaign")
+        # Partial watch time must not be presented as a mined or claimed reward.
+        expect(tile.locator(".drop-progress")).to_have_text("0/1 mined")
         expect(tile).to_have_attribute("aria-pressed", "false")
 
         tile.click()
@@ -60,6 +62,34 @@ class DropGamesViewTests(GamesPageTestCase):
         expect(self.order()).to_have_count(0)
         expect(self.page.locator("#priorityEmptyNotice")).to_be_visible()
         self.wait_saved([])
+
+    def test_status_polling_preserves_the_focused_game_cover_and_scroll(self):
+        # Live account progress must update metadata without remounting the grid.
+        self.page.set_viewport_size({"width": 1280, "height": 420})
+        self.open_games()
+        tile = self.tile(GAME_NAME)
+        expect(tile.locator(".drop-progress")).to_have_text("0/1 mined")
+        tile.focus()
+        bottom = self.page.evaluate("scrollTo(0, document.scrollingElement.scrollHeight), scrollY")
+        self.assertGreater(bottom, 0)
+        for _ in range(2):
+            with self.page.expect_response("**/api/status"):
+                pass
+        expect(tile).to_be_focused()
+        self.assertEqual(self.page.evaluate("scrollY"), bottom)
+        expect(tile.locator(".drop-progress")).to_have_text("0/1 mined")
+
+    def test_disconnect_clears_account_progress_from_mounted_catalog_results(self):
+        self.open_games()
+        self.page.get_by_label("Search Twitch games").fill(GAME_NAME.lower())
+        expect(self.tile(GAME_NAME).locator(".drop-progress")).to_have_text("0/1 mined")
+        self.open_settings()
+        self.page.locator("#btnDisconnect").click()
+        self.page.get_by_role("button", name="Disconnect account").click()
+        expect(self.page.locator("#btnConnect")).to_be_visible()
+        # The search results remain mounted while Settings is open, but account data cannot.
+        expect(self.page.locator("#gamesGrid .drop-progress")).to_have_count(0)
+        expect(self.page.locator("#gamesGrid .drops-tag")).to_have_count(0)
 
 
 class SearchTests(GamesPageTestCase):
@@ -115,6 +145,17 @@ class AllGamesTests(GamesPageTestCase):
         names = tiles.locator(".game-name").all_inner_texts()
         self.assertEqual(names, [g["displayName"] for g in CATALOG])
         self.assertGreater(len(CATALOG), FIRST_PAGE)
+
+    def test_account_progress_appears_in_catalog_and_search_but_not_unrelated_games(self):
+        self.open_games()
+        self.page.locator("#gamesViewAll").click()
+        expect(self.tile(GAME_NAME).locator(".drops-tag")).to_have_text("Drops · 1 campaign")
+        expect(self.tile(GAME_NAME).locator(".drop-progress")).to_have_text("0/1 mined")
+        expect(self.tile("Catalog Game 01").locator(".drop-progress")).to_have_count(0)
+
+        self.page.get_by_label("Search Twitch games").fill(GAME_NAME.lower())
+        expect(self.tile(GAME_NAME)).to_have_count(1)
+        expect(self.tile(GAME_NAME).locator(".drop-progress")).to_have_text("0/1 mined")
 
 
 class MiningOrderTests(GamesPageTestCase):

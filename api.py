@@ -161,6 +161,7 @@ class APIServer:
     def _publish_campaign_choice(self) -> None:
         self._twitch.settings.save(force=True)
         self._hub.broadcast_event("inventory", self._hub.get_inventory())
+        self._hub.broadcast_event("game_drop_progress", self._hub.get_game_drop_progress())
         # re-rank games: an ignored campaign stops being mined, a started one goes first
         self._twitch.change_state(State.GAMES_UPDATE)
 
@@ -264,6 +265,8 @@ class APIServer:
 
     async def _get_games(self, request: web.Request) -> web.Response:
         """Games with drop campaigns on this account; the full catalog is /api/games/catalog."""
+        progress = self._hub.get_game_drop_progress()
+        progress_by_name = {name.casefold(): counts for name, counts in progress.items()}
         games_dict: dict[str, dict[str, Any]] = {}
         for g in self._hub.available_games:
             g_name = g.get("name")
@@ -280,9 +283,23 @@ class APIServer:
                 if camp.get("box_art"):
                     box_art.setdefault(c_game, camp["box_art"])
 
+        # Finished current campaigns stay in the picker, not the mining queue or cards.
+        known_names = {name.casefold() for name in games_dict}
+        for name in progress:
+            if name.casefold() not in known_names:
+                games_dict[name] = {"name": name, "discovered": True}
+                known_names.add(name.casefold())
+        progress_art = {
+            camp["game"].casefold(): camp["box_art"]
+            for camp in self._hub.campaigns_map.values()
+            if camp.get("box_art") and camp["game"].casefold() in progress_by_name
+        }
+
         for g in games_dict.values():
             g["campaigns_count"] = campaign_counts.get(g["name"], 0)
-            g["box_art"] = box_art.get(g["name"], "")
+            g["box_art"] = box_art.get(g["name"], progress_art.get(g["name"].casefold(), ""))
+            if g["name"].casefold() in progress_by_name:
+                g["drop_progress"] = progress_by_name[g["name"].casefold()]
 
         sorted_games = sorted(
             list(games_dict.values()),
@@ -291,6 +308,7 @@ class APIServer:
         return self._json_response({
             "available": sorted_games,
             "campaign_counts": campaign_counts,
+            "game_drop_progress": progress,
             "priority": list(self._twitch.settings.priority),
             "exclude": list(self._twitch.settings.exclude),
         })
@@ -336,8 +354,13 @@ class APIServer:
             return result
         games, next_cursor = result
         counts = self._campaign_counts()
+        progress = {
+            name.casefold(): counts for name, counts in self._hub.get_game_drop_progress().items()
+        }
         for game in games:
             game["campaigns_count"] = counts.get(game["name"].casefold(), 0)
+            if game["name"].casefold() in progress:
+                game["drop_progress"] = progress[game["name"].casefold()]
         return self._json_response({"games": games, "next": next_cursor})
 
     async def _get_games_lookup(self, request: web.Request) -> web.Response:

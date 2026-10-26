@@ -455,12 +455,14 @@ class StateHub:
         self.campaigns_map.clear()
         self._inventory_campaigns.clear()
         self.broadcast_event("inventory", [])
+        self.broadcast_event("game_drop_progress", {})
 
     def update_inventory_drop(self, drop: TimedDrop) -> None:
         camp_id = drop.campaign.id
         if camp_id not in self.campaigns_map:
             self.update_inventory_campaign(drop.campaign)
         else:
+            self._inventory_campaigns[camp_id] = drop.campaign
             campaign_data = self.campaigns_map[camp_id]
             for d in campaign_data["drops"]:
                 if d["id"] == drop.id:
@@ -469,6 +471,7 @@ class StateHub:
                     d["is_claimed"] = drop.is_claimed
                     d["can_claim"] = drop.can_claim
             self.broadcast_event("inventory", self.get_inventory())
+            self.broadcast_event("game_drop_progress", self.get_game_drop_progress())
 
     def update_inventory_campaign(self, campaign: DropsCampaign) -> None:
         self._inventory_campaigns[campaign.id] = campaign
@@ -512,6 +515,7 @@ class StateHub:
             "drops": drops_list,
         }
         self.broadcast_event("inventory", self.get_inventory())
+        self.broadcast_event("game_drop_progress", self.get_game_drop_progress())
 
     def get_inventory(self) -> list[dict[str, Any]]:
         visible = []
@@ -572,6 +576,33 @@ class StateHub:
         """Visible campaigns the user hasn't ignored; these drive totals and the drops view."""
         return [campaign for campaign in self.get_inventory() if not campaign["ignored"]]
 
+    def get_game_drop_progress(self) -> dict[str, dict[str, int]]:
+        """Account rewards for the picker, separate from the pending mining inventory."""
+        progress: dict[str, dict[str, int]] = {}
+        display_names: dict[str, str] = {}
+        for campaign in self._inventory_campaigns.values():
+            if campaign.ignored:
+                continue
+            ongoing = campaign.active or campaign.upcoming
+            drops = [
+                drop for drop in campaign.drops
+                if ongoing or (campaign.eligible and not drop.is_claimed and drop.can_claim)
+            ]
+            if not ongoing and not drops:
+                continue
+            name = str(campaign.game)
+            name = display_names.setdefault(name.casefold(), name)
+            counts = progress.setdefault(name, {
+                "campaigns_count": 0, "total_drops": 0, "mined_drops": 0, "claimed_drops": 0,
+            })
+            counts["campaigns_count"] += 1
+            counts["total_drops"] += len(drops)
+            counts["mined_drops"] += sum(
+                drop.is_claimed or drop.current_minutes >= drop.required_minutes for drop in drops
+            )
+            counts["claimed_drops"] += sum(drop.is_claimed for drop in drops)
+        return progress
+
     def set_games(self, games: set[Game]) -> None:
         self.available_games = [
             {"id": g.id, "name": g.name, "slug": getattr(g, "slug", "")}
@@ -623,6 +654,7 @@ class StateHub:
             "auth_error": self.auth_error,
             "channels_count": len(self.channels_map),
             "campaigns_count": len(counted),
+            "game_drop_progress": self.get_game_drop_progress(),
             "claimable_count": claimable_count,
             "can_start_count": can_start_count,
             "websockets": list(self.websockets_status.values()),

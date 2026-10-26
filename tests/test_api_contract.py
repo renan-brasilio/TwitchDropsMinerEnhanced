@@ -563,7 +563,8 @@ class WebSocketInitTests(ApiContractTestCase):
             init = message["data"]
             for key in ("state", "status_text", "is_logged_in", "user_id", "username",
                         "auth_disconnected", "auth_pending", "active_drop", "active_channel",
-                        "device_code", "channels_count", "campaigns_count", "claimable_count", "can_start_count", "websockets", "version"):
+                        "device_code", "channels_count", "campaigns_count", "game_drop_progress",
+                        "claimable_count", "can_start_count", "websockets", "version"):
                 with self.subTest(key=key):
                     self.assertEqual(init[key], status[key])
             self.assertEqual(init["campaigns_count"], 2)
@@ -618,6 +619,105 @@ class GamesEndpointTests(ApiContractTestCase):
         self.assertEqual(games["exclude"], ["Rust"])
         status = await self.get_json("/api/status")
         self.assertEqual(status["campaigns_count"], sum(games["campaign_counts"].values()))
+
+    async def test_game_progress_includes_current_claimed_rewards_without_changing_pending_counts(self):
+        self.add_campaign("claimed", minutes=0, claimed=True)
+        pending = self.add_campaign("pending", minutes=20)
+        self.add_campaign("ready", minutes=60, claim_id="ready-instance")
+        self.add_campaign("upcoming-claimed", start=NOW + timedelta(hours=2), claimed=True)
+        self.add_campaign("completed-game", game="Completed Game", game_id="2", claimed=True)
+        empty = self.add_campaign("empty", game="Empty Game", game_id="3")
+        empty.timed_drops.clear()
+        self.hub.update_inventory_campaign(empty)
+        # Repeated updates represent the same campaign, not extra rewards.
+        self.hub.update_inventory_campaign(pending)
+        expected = {
+            "Game": {"campaigns_count": 4, "total_drops": 4, "mined_drops": 3, "claimed_drops": 2},
+            "Completed Game": {"campaigns_count": 1, "total_drops": 1, "mined_drops": 1, "claimed_drops": 1},
+            "Empty Game": {"campaigns_count": 1, "total_drops": 0, "mined_drops": 0, "claimed_drops": 0},
+        }
+        games = await self.get_json("/api/games")
+        self.assertEqual(games["game_drop_progress"], expected)
+        self.assertEqual(games["campaign_counts"], {"Game": 2})
+        by_name = {game["name"]: game for game in games["available"]}
+        self.assertEqual(by_name["Completed Game"]["campaigns_count"], 0)
+        self.assertEqual(by_name["Completed Game"]["drop_progress"], expected["Completed Game"])
+        self.assertEqual(by_name["Game"]["drop_progress"], expected["Game"])
+        self.assertEqual([c["id"] for c in await self.get_json("/api/inventory")], ["pending", "ready"])
+        status = await self.get_json("/api/status")
+        self.assertEqual(status["campaigns_count"], 2)
+        self.assertEqual(status["game_drop_progress"], expected)
+        # Status derives progress from live drops, not the serialized inventory copy.
+        pending.timed_drops["pending-drop"].real_current_minutes = 60
+        expected["Game"]["mined_drops"] = 4
+        self.assertEqual((await self.get_json("/api/status"))["game_drop_progress"], expected)
+
+    async def test_game_progress_excludes_ignored_and_expired_rewards_and_limits_ended_claims(self):
+        self.add_campaign("ignored-current", game="Ignored", claimed=True)
+        self.settings.ignored_campaigns = {"ignored-current"}
+        self.add_campaign("ended-claimed", game="Expired", end=NOW - timedelta(hours=1), claimed=True)
+        self.add_campaign("claim-expired", game="Expired", end=NOW - timedelta(hours=24),
+                          minutes=60, claim_id="expired-instance")
+        self.add_campaign("upcoming-claimed", game="Upcoming", start=NOW + timedelta(hours=1),
+                          claimed=True)
+        ended = self.add_campaign("ended-ready", end=NOW - timedelta(hours=23),
+                                  minutes=60, claim_id="ready-instance")
+        ready = ended.timed_drops["ended-ready-drop"]
+        claimed = copy.copy(ready)
+        claimed.id, claimed.is_claimed = "already-claimed", True
+        incomplete = copy.copy(ready)
+        incomplete.id, incomplete.claim_id, incomplete.real_current_minutes = "incomplete", None, 20
+        ended.timed_drops.update(claimed=claimed, incomplete=incomplete)
+        self.hub.update_inventory_campaign(ended)
+        expected = {
+            "Upcoming": {"campaigns_count": 1, "total_drops": 1, "mined_drops": 1, "claimed_drops": 1},
+            "Game": {"campaigns_count": 1, "total_drops": 1, "mined_drops": 1, "claimed_drops": 0},
+        }
+        games = await self.get_json("/api/games")
+        self.assertEqual(games["game_drop_progress"], expected)
+        self.assertEqual({game["name"] for game in games["available"]}, {"Upcoming", "Game"})
+        self.assertEqual(games["campaign_counts"], {"Game": 1})
+        Clock.current = NOW + timedelta(hours=1)
+        del expected["Game"]
+        self.assertEqual((await self.get_json("/api/status"))["game_drop_progress"], expected)
+
+    async def test_final_claim_keeps_current_game_progress_live_until_account_disconnect(self):
+        payload = campaign_payload("last-reward", minutes=60, claim_id="last-instance")
+        gql = FakeTwitchGQL([payload])
+        with patch.object(self.twitch, "gql_request", side_effect=gql.request):
+            await self.twitch.fetch_inventory()
+            ws = await self.client.ws_connect("/ws")
+            try:
+                init = await ws.receive_json(timeout=2)
+                self.assertEqual(init["data"]["game_drop_progress"], {
+                    "Game": {"campaigns_count": 1, "total_drops": 1, "mined_drops": 1, "claimed_drops": 0},
+                })
+                response = await self.client.post("/api/control/claim")
+                self.assertEqual(response.status, 200)
+                self.assertEqual((await response.json())["claimed"], 1)
+                self.assertEqual(gql.claimed_instances, ["last-instance"])
+                expected = {
+                    "Game": {"campaigns_count": 1, "total_drops": 1, "mined_drops": 1, "claimed_drops": 1},
+                }
+                while True:
+                    event = await ws.receive_json(timeout=2)
+                    if event["event"] == "game_drop_progress" and event["data"] == expected:
+                        break
+                self.assertEqual(await self.get_json("/api/inventory"), [])
+                games = await self.get_json("/api/games")
+                self.assertEqual(games["campaign_counts"], {})
+                self.assertEqual(games["available"][0]["drop_progress"], expected["Game"])
+                response = await self.client.post("/api/auth/disconnect")
+                self.assertEqual(response.status, 200)
+                while True:
+                    event = await ws.receive_json(timeout=2)
+                    if event["event"] == "game_drop_progress":
+                        self.assertEqual(event["data"], {})
+                        break
+                self.assertEqual((await self.get_json("/api/status"))["game_drop_progress"], {})
+                self.assertEqual((await self.get_json("/api/games"))["available"], [])
+            finally:
+                await ws.close()
 
 
 class CampaignChoiceEndpointTests(ApiContractTestCase):
@@ -740,14 +840,15 @@ class GameCatalogEndpointTests(ApiContractTestCase):
         self.assertEqual([g["name"] for g in search["games"]], games)
 
     async def test_search_returns_display_names_and_drop_counts_without_paging(self):
-        self.add_campaign("active", game="VALORANT", game_id="7")
+        self.add_campaign("active", game="valorant", game_id="7")
         sent = self.fake_gql({"GameSearch": lambda v: {"data": {"searchCategories": {"edges": [
             {"node": self.node("valorant", "VALORANT", 5000)}, {"node": None},
         ]}}}})
         data = await self.get_json("/api/games/catalog?q=%20valo%20&first=5")
         self.assertEqual(data, {"next": None, "games": [{
             "id": "1", "name": "VALORANT", "box_art": "https://cdn.example/valorant.jpg",
-            "viewers": 5000, "campaigns_count": 1}]})
+            "viewers": 5000, "campaigns_count": 1,
+            "drop_progress": {"campaigns_count": 1, "total_drops": 1, "mined_drops": 0, "claimed_drops": 0}}]})
         # The search text travels as a GQL variable, trimmed, never spliced into the query.
         self.assertEqual(sent[0]["variables"], {"query": "valo", "first": 5})
         self.assertNotIn("valo", sent[0]["query"])

@@ -568,6 +568,7 @@
 
     .game-meta { font-size: 11px; color: var(--text-subtle); display: flex; gap: 6px; flex-wrap: wrap; }
     .game-meta .drops-tag { color: #bf94ff; font-weight: 600; }
+    .game-meta .drop-progress { flex-basis: 100%; }
 
     .games-footer { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
 
@@ -1215,6 +1216,9 @@
     let priorityList = [];
     let cachedAvailableGames = [];
     let cachedCampaignCounts = {};
+    let cachedGameDropProgress = null; // null until an authoritative account snapshot arrives
+    let gameAccountOwner;
+    let gameAccountRevision = 0;
     const gameArt = new Map();
     const lookedUpArt = new Set();
     const unknownGames = new Set();
@@ -1422,12 +1426,12 @@
         await responseData(response);
         if (action === 'disconnect' || action === 'token') document.getElementById('authTokenInput').value = '';
         if (action === 'disconnect') {
-          cachedState = { ...cachedState, auth_disconnected: true, is_logged_in: false, user_id: null, username: null, device_code: null, channels: [], inventory: [], active_drop: null, active_channel: null, campaigns_count: 0 };
-          cachedCampaignCounts = {};
+          cachedState = { ...cachedState, auth_disconnected: true, is_logged_in: false, user_id: null, username: null, device_code: null, channels: [], inventory: [], active_drop: null, active_channel: null, campaigns_count: 0, game_drop_progress: {} };
           applyState(cachedState);
           document.getElementById('disconnectConfirmation').style.display = 'none';
         } else {
           cachedState = { ...cachedState, auth_disconnected: false, is_logged_in: false, user_id: null, username: null, device_code: null };
+          syncGameAccount(cachedState);
         }
         showToast(action === 'disconnect' ? 'Disconnected from this app.' : 'Twitch connection started.', 'success');
       } catch (err) {
@@ -1709,6 +1713,8 @@
         renderChannels(data);
       } else if (eventType === 'inventory') {
         renderInventory(data);
+      } else if (eventType === 'game_drop_progress') {
+        if (!authPending && cachedState.is_logged_in && !cachedState.auth_disconnected) setGameDropProgress(data);
       } else if (eventType === 'log') {
         appendTerminalLog(data);
       } else if (eventType === 'auth_code') {
@@ -1728,6 +1734,7 @@
           device_code: data.device_code ?? null,
           auth_error: data.auth_error ?? null
         };
+        syncGameAccount(cachedState);
         renderActivation(authPending || cachedState.auth_disconnected || cachedState.is_logged_in ? null : cachedState.device_code);
         updateAccountControls();
       } else if (eventType === 'settings') {
@@ -1745,6 +1752,10 @@
     }
 
     function applyState(state) {
+      syncGameAccount(state);
+      if (state.is_logged_in && !state.auth_disconnected && state.game_drop_progress) {
+        setGameDropProgress(state.game_drop_progress);
+      }
       const badgeState = (state.state === 'IDLE') ? 'idle' : (state.is_logged_in ? 'active' : 'idle');
       updateStatusBadge(state.status_text || 'Ready', badgeState);
 
@@ -2266,14 +2277,69 @@
       return 0;
     }
 
+    function syncGameAccount(state) {
+      const owner = state.is_logged_in && !state.auth_disconnected ? String(state.user_id || state.username || 'connected') : null;
+      if (owner === gameAccountOwner) return;
+      gameAccountOwner = owner;
+      ++gameAccountRevision;
+      cachedGameDropProgress = null;
+      cachedCampaignCounts = {};
+      cachedAvailableGames = [];
+      // Catalog artwork is public; only its account-specific metadata must be discarded.
+      games.items.forEach(game => {
+        delete game.drop_progress;
+        game.campaigns_count = 0;
+      });
+      ++games.seq; // discard catalog responses belonging to the previous account
+      games.loading = false;
+      refreshGameProgress();
+    }
+
+    function setGameDropProgress(progress) {
+      cachedGameDropProgress = new Map(Object.entries(progress || {}).map(([name, value]) => [
+        gameKey(name), { ...value, name },
+      ]));
+      refreshGameProgress();
+    }
+
+    function dropProgressFor(game) {
+      return cachedGameDropProgress !== null
+        ? cachedGameDropProgress.get(gameKey(game.name))
+        : game.drop_progress;
+    }
+
+    function gameCampaignCount(game) {
+      const progress = dropProgressFor(game);
+      return progress ? progress.campaigns_count
+        : cachedGameDropProgress !== null ? 0 : (game.campaigns_count || campaignCountFor(game.name));
+    }
+
+    function refreshGameProgress() {
+      const count = dropGames().length;
+      document.getElementById('dropsGamesCount').textContent = count ? `(${count})` : '';
+      if (!games.ready) return;
+      if (!games.query && games.view === 'drops') showDropGames();
+      else document.querySelectorAll('#gamesGrid .game-tile').forEach(tile => {
+        const game = games.items.find(item => gameKey(item.name) === gameKey(tile.dataset.game));
+        if (game) updateTileMetadata(tile, game);
+      });
+    }
+
     function dropGames() {
-      return cachedAvailableGames.filter(game => (game.campaigns_count || 0) > 0);
+      const available = new Map(cachedAvailableGames.map(game => [gameKey(game.name), game]));
+      cachedGameDropProgress?.forEach(progress => {
+        if (!available.has(gameKey(progress.name))) {
+          available.set(gameKey(progress.name), { name: progress.name, box_art: gameArt.get(gameKey(progress.name)) });
+        }
+      });
+      return [...available.values()].filter(game => gameCampaignCount(game) > 0);
     }
 
     async function loadPriorities(force = false) {
       if (prioritiesPending && !force) return;
       const preferenceRevision = settingsRevision;
       const listRevision = priorityRevision;
+      const accountRevision = gameAccountRevision;
       try {
         const [settingsRes, gamesRes] = await Promise.allSettled([
           apiFetch('/api/settings'),
@@ -2294,12 +2360,13 @@
         }
         if (gamesRes.status === 'fulfilled' && gamesRes.value.ok) {
           const gamesData = await gamesRes.value.json();
-          cachedAvailableGames = gamesData.available || [];
-          cachedCampaignCounts = gamesData.campaign_counts || cachedCampaignCounts || {};
-          rememberArt(cachedAvailableGames);
-          const dropCount = dropGames().length;
-          document.getElementById('dropsGamesCount').textContent = dropCount ? `(${dropCount})` : '';
-          if (games.ready && !games.query && games.view === 'drops') showDropGames();
+          if (accountRevision === gameAccountRevision) {
+            cachedAvailableGames = gamesData.available || [];
+            cachedCampaignCounts = gamesData.campaign_counts || {};
+            rememberArt(cachedAvailableGames);
+            if (gamesData.game_drop_progress) setGameDropProgress(gamesData.game_drop_progress);
+            else refreshGameProgress();
+          }
         }
         renderPriorityList();
         lookupMissingArt();
@@ -2390,7 +2457,7 @@
 
     function showDropGames() {
       games.items = dropGames().map(game => ({
-        name: game.name, box_art: game.box_art, campaigns_count: game.campaigns_count, viewers: null,
+        name: game.name, box_art: game.box_art, campaigns_count: game.campaigns_count, drop_progress: game.drop_progress, viewers: null,
       }));
       games.next = null;
       games.error = '';
@@ -2448,18 +2515,6 @@
 
       const cover = document.createElement('span');
       cover.className = 'game-cover';
-      const art = game.box_art || gameArt.get(gameKey(game.name));
-      if (art) {
-        const img = document.createElement('img');
-        img.src = art;
-        img.alt = '';
-        img.loading = 'lazy';
-        img.decoding = 'async';
-        img.onerror = () => img.replaceWith(coverFallback(game.name));
-        cover.append(img);
-      } else {
-        cover.append(coverFallback(game.name));
-      }
 
       const name = document.createElement('span');
       name.className = 'game-name';
@@ -2467,22 +2522,67 @@
 
       const meta = document.createElement('span');
       meta.className = 'game-meta';
-      const campaigns = game.campaigns_count || campaignCountFor(game.name);
+      tile.append(cover, name, meta);
+      updateTileArt(tile, game);
+      updateTileMetadata(tile, game);
+      updateTileState(tile);
+      return tile;
+    }
+
+    function updateTileArt(tile, game) {
+      const art = game.box_art || gameArt.get(gameKey(game.name)) || '';
+      const cover = tile.querySelector('.game-cover');
+      if (cover.dataset.art === art) return;
+      cover.dataset.art = art;
+      // The rank badge belongs to selection, not to the cover's loading lifecycle.
+      [...cover.children].forEach(child => { if (!child.classList.contains('game-rank')) child.remove(); });
+      if (art) {
+        const img = document.createElement('img');
+        img.src = art;
+        img.alt = '';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.onerror = () => img.replaceWith(coverFallback(game.name));
+        cover.prepend(img);
+      } else {
+        cover.prepend(coverFallback(game.name));
+      }
+    }
+
+    function updateTileMetadata(tile, game) {
+      const meta = tile.querySelector('.game-meta');
+      const progress = dropProgressFor(game);
+      const campaigns = gameCampaignCount(game);
+      let completion = '';
+      if (progress?.total_drops > 0) {
+        const total = progress.total_drops;
+        const mined = progress.mined_drops;
+        completion = mined >= total ? `All ${total} mined` : `${mined}/${total} mined`;
+        const toClaim = mined - progress.claimed_drops;
+        if (toClaim > 0) completion += ` · ${toClaim} to claim`;
+      }
+      const signature = JSON.stringify([campaigns, completion, game.viewers]);
+      if (meta.dataset.signature === signature) return;
+      meta.dataset.signature = signature;
+      const parts = [];
       if (campaigns > 0) {
         const tag = document.createElement('span');
         tag.className = 'drops-tag';
         tag.textContent = `Drops · ${campaigns} campaign${campaigns > 1 ? 's' : ''}`;
-        meta.append(tag);
+        parts.push(tag);
+      }
+      if (completion) {
+        const label = document.createElement('span');
+        label.className = 'drop-progress';
+        label.textContent = completion;
+        parts.push(label);
       }
       if (game.viewers > 0) {
         const viewers = document.createElement('span');
         viewers.textContent = `${viewerFormat.format(game.viewers)} viewers`;
-        meta.append(viewers);
+        parts.push(viewers);
       }
-
-      tile.append(cover, name, meta);
-      updateTileState(tile);
-      return tile;
+      meta.replaceChildren(...parts);
     }
 
     function updateTileState(tile) {
@@ -2512,7 +2612,17 @@
       document.getElementById('btnGamesRefresh').hidden = searching || games.view !== 'drops';
 
       const grid = document.getElementById('gamesGrid');
-      grid.replaceChildren(...games.items.map(gameTile));
+      // Keep mounted covers (and keyboard focus/scroll) across account progress updates.
+      const tiles = new Map([...grid.children].map(tile => [gameKey(tile.dataset.game), tile]));
+      const keys = new Set(games.items.map(game => gameKey(game.name)));
+      tiles.forEach((tile, key) => { if (!keys.has(key)) tile.remove(); });
+      games.items.forEach((game, index) => {
+        const tile = tiles.get(gameKey(game.name)) || gameTile(game);
+        updateTileArt(tile, game);
+        updateTileMetadata(tile, game);
+        updateTileState(tile);
+        if (grid.children[index] !== tile) grid.insertBefore(tile, grid.children[index] || null);
+      });
       grid.setAttribute('aria-busy', String(games.loading));
 
       let message;
