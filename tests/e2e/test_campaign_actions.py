@@ -158,3 +158,39 @@ class HeaderActionButtonsTests(DashboardTestCase):
         expect(claim_btn).to_be_visible()
         expect(claim_btn).to_be_disabled()
         expect(claim_text).to_have_text("Automatically claiming")
+
+
+class CampaignQueueStatusTests(DashboardTestCase):
+    def test_waiting_for_stream_shows_clean_compact_pill_without_dumping_all_channels(self):
+        self.open_dashboard()
+        # Multiple allowed channels (e.g. Apex ALGS with 150 streamers)
+        html_many = self.page.evaluate("""
+            campaignQueueStatus({
+                queue_status: 'waiting_for_stream',
+                allowed_channels: ['playapex', 'algs1_team1', 'algs1_team2', 'algs1_team3', 'algs1_team4', 'algs1_team5', 'Darkiightt']
+            })
+        """)
+        self.assertIn("Waiting for an eligible streamer to be live", html_many)
+        self.assertNotIn("to stream eligible drops", html_many)
+        self.assertIn('title="Waiting for one of 7 allowed streamers (playapex, algs1_team1, algs1_team2, algs1_team3, algs1_team4, and 2 more). Other runnable campaigns continue. Streams are rechecked every five minutes and on live events."', html_many)
+
+        # Single allowed channel
+        html_one = self.page.evaluate("""
+            campaignQueueStatus({
+                queue_status: 'waiting_for_stream',
+                allowed_channels: ['inoxtag']
+            })
+        """)
+        self.assertIn("Waiting for inoxtag to be live", html_one)
+        self.assertIn('title="Only inoxtag can earn drop progress for this campaign. Other runnable campaigns continue. Streams are rechecked every five minutes and on live events."', html_one)
+
+        # Open campaign with no channel restrictions
+        html_none = self.page.evaluate("""
+            campaignQueueStatus({
+                queue_status: 'waiting_for_stream',
+                allowed_channels: []
+            })
+        """)
+        self.assertIn("Waiting for an eligible live stream", html_none)
+        self.assertIn('title="Other runnable campaigns continue. Streams are rechecked every five minutes and on live events."', html_none)
+

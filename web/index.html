@@ -1933,20 +1933,34 @@
 
     function campaignQueueStatus(campaign) {
       const status = campaign.queue_status;
+      const channels = Array.isArray(campaign.allowed_channels) ? campaign.allowed_channels : [];
+      const waitingLabel = channels.length === 1
+        ? `Waiting for ${channels[0]} to be live`
+        : (channels.length > 1
+          ? 'Waiting for an eligible streamer to be live'
+          : 'Waiting for an eligible live stream');
       const labels = {
         mining: 'Mining now', queued: 'Queued · live stream available',
-        waiting_for_stream: campaign.allowed_channels?.length
-          ? `Waiting for ${campaign.allowed_channels.join(', ')} to stream eligible drops`
-          : 'Waiting for an eligible live stream',
+        waiting_for_stream: waitingLabel,
         paused: 'Paused', upcoming: 'Waiting for campaign start',
         not_selected: 'Not in mining queue', blocked: 'Waiting for drop requirements',
         claimable: 'Ready to claim'
       };
       if (!labels[status]) return '';
       const style = status === 'mining' || status === 'queued' ? 'pill-online' : 'pill-idle';
-      const title = status === 'waiting_for_stream'
-        ? 'Other runnable campaigns continue. Streams are rechecked every five minutes and on live events.'
-        : labels[status];
+      let title = labels[status];
+      if (status === 'waiting_for_stream') {
+        const streamNote = 'Other runnable campaigns continue. Streams are rechecked every five minutes and on live events.';
+        if (channels.length === 1) {
+          title = `Only ${channels[0]} can earn drop progress for this campaign. ${streamNote}`;
+        } else if (channels.length > 1 && channels.length <= 5) {
+          title = `Waiting for one of ${channels.length} allowed streamers: ${channels.join(', ')}. ${streamNote}`;
+        } else if (channels.length > 5) {
+          title = `Waiting for one of ${channels.length} allowed streamers (${channels.slice(0, 5).join(', ')}, and ${channels.length - 5} more). ${streamNote}`;
+        } else {
+          title = streamNote;
+        }
+      }
       return `<span class="pill ${style}" title="${escapeHtml(title)}">${escapeHtml(labels[status])}</span>`;
     }
 
