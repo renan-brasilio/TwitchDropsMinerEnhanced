@@ -1,5 +1,5 @@
 """
-Public community drops feed (https://twitch-drops-api.sunkwi.com/v2/drops).
+Public community drops feed (https://drops.sunkwi.com/api/twitch/drops).
 
 Used when Twitch's account-bound GQL queries (Campaigns / ViewerDropsDashboard)
 fail or return null due to Twitch's client-integrity challenge or device-code
@@ -22,7 +22,7 @@ from constants import JsonType
 
 logger = logging.getLogger("TwitchDrops")
 
-PUBLIC_CATALOG_URL = "https://twitch-drops-api.sunkwi.com/v2/drops"
+PUBLIC_CATALOG_URL = "https://drops.sunkwi.com/api/twitch/drops"
 MAX_CAMPAIGNS = 2000
 MAX_FEED_AGE = timedelta(hours=6)
 MAX_BODY_BYTES = 10 * 1024 * 1024
@@ -131,7 +131,7 @@ def _clean_reward(record: dict[str, Any], default_game_info: dict[str, Any]) -> 
 def parse_public_catalog(payload: dict[str, Any], now: datetime | None = None) -> list[JsonType]:
     now = now or datetime.now(timezone.utc)
     try:
-        updated_raw = payload.get("lastUpdatedAt")
+        updated_raw = payload.get("refreshedAt")
         if updated_raw:
             try:
                 updated = _parse_iso(updated_raw)
@@ -140,7 +140,7 @@ def parse_public_catalog(payload: dict[str, Any], now: datetime | None = None) -
             except Exception:
                 pass
 
-        groups = payload.get("data")
+        groups = payload.get("games")
         if not isinstance(groups, list):
             return []
 
